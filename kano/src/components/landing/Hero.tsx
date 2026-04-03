@@ -59,32 +59,7 @@ const Hero = () => {
           </button>
         </motion.div>
 
-        {/* Floating UI mockup hint */}
-        <motion.div
-          initial={{ opacity: 0, y: 60 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1, delay: 1.2 }}
-          className="mt-16 md:mt-24 glass-card p-1.5 glow-border max-w-4xl mx-auto"
-        >
-          <div className="bg-card rounded-xl p-6 md:p-10 relative overflow-hidden">
-            <div className="flex items-center gap-2 mb-6">
-              <div className="h-3 w-3 rounded-full bg-destructive/60" />
-              <div className="h-3 w-3 rounded-full bg-accent/60" />
-              <div className="h-3 w-3 rounded-full bg-success/60" />
-            </div>
-            <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="aspect-[4/3] rounded-lg bg-muted/50 border border-border/30 flex items-center justify-center">
-                  <div className="w-3/4 space-y-2">
-                    <div className="h-2 bg-primary/20 rounded-full w-full" />
-                    <div className="h-1.5 bg-muted-foreground/10 rounded-full w-4/5" />
-                    <div className="h-1.5 bg-muted-foreground/10 rounded-full w-3/5" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </motion.div>
+
       </div>
     </section>
   );

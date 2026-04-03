@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Sparkles } from "lucide-react";
+import { supabase } from "../lib/supabase";
+import { toast } from "sonner";
 
 const messages = [
   "Analyzing your startup idea...",
@@ -13,21 +15,68 @@ const messages = [
 
 const GeneratingPage = () => {
   const [messageIndex, setMessageIndex] = useState(0);
+  const location = useLocation();
   const navigate = useNavigate();
+  const hasStarted = useRef(false);
 
   useEffect(() => {
+    // Visual progression messages
     const interval = setInterval(() => {
       setMessageIndex((prev) => {
-        if (prev >= messages.length - 1) {
-          clearInterval(interval);
-          setTimeout(() => navigate("/dashboard/editor"), 1000);
-          return prev;
-        }
+        if (prev >= messages.length - 1) return prev;
         return prev + 1;
       });
-    }, 1500);
+    }, 2000);
     return () => clearInterval(interval);
-  }, [navigate]);
+  }, []);
+
+  useEffect(() => {
+    // Actual API Generation
+    if (hasStarted.current) return;
+    hasStarted.current = true;
+
+    const payload = location.state;
+    if (!payload?.idea) {
+        toast.error("No idea provided! Please fill out the form.");
+        navigate("/dashboard/create");
+        return;
+    }
+
+    const generateAI = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          toast.error("You must be logged in to generate.");
+          navigate("/login");
+          return;
+        }
+
+        const res = await fetch("http://localhost:3001/api/projects", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify(payload)
+        });
+        
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Generation failed");
+        }
+        
+        const data = await res.json();
+        toast.success("Deck generated securely!");
+        // Navigate to editor with real project data
+        navigate("/dashboard/editor", { state: { project: data.project } });
+      } catch (err: any) {
+        toast.error("Failed: " + err.message);
+        navigate("/dashboard/create");
+      }
+    };
+    
+    generateAI();
+  }, [location, navigate]);
 
   return (
     <div className="fixed inset-0 bg-background z-50 flex items-center justify-center">
@@ -38,9 +87,9 @@ const GeneratingPage = () => {
 
       <div className="relative z-10 text-center">
         <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-          className="inline-flex mb-8"
+           animate={{ rotate: 360 }}
+           transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+           className="inline-flex mb-8"
         >
           <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-[0_0_40px_hsl(263,83%,58%,0.3)]">
             <Sparkles className="h-8 w-8 text-primary-foreground" />
