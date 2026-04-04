@@ -19,16 +19,16 @@ const DEFAULT_THEME = { bg: '#1a1a1a', accent: '#00bfff', text: '#ffffff', bulle
 
 // Map common slide names to relevant Unsplash search keywords
 const SLIDE_IMAGE_MAP: Record<string, string> = {
-  'problem': 'obstacle challenge frustration',
-  'solution': 'innovation technology solution',
-  'target market': 'customers audience demographics',
-  'product roadmap': 'roadmap planning milestones',
-  'team & traction': 'team collaboration office people',
-  'competitive landscape': 'competition strategy chess',
-  'go-to-market strategy': 'marketing launch growth',
-  'business model & revenue': 'finance money revenue growth',
-  'unique value proposition': 'diamond value premium',
-  'financial projections & ask': 'investment growth chart finance',
+  'problem': 'abstract obstacle challenge frustration barrier darkness',
+  'solution': 'modern innovation technology glowing solution key inspiration',
+  'target market': 'diverse group of people customers target audience focus',
+  'product roadmap': 'futuristic roadmap timeline planning strategy steps',
+  'team & traction': 'diverse professional team collaborating in modern office',
+  'competitive landscape': 'strategic chess board multi-layered competition landscape',
+  'go-to-market strategy': 'rocket launch marketing strategy global growth',
+  'business model & revenue': 'financial growth chart gold revenue wealth prosperity',
+  'unique value proposition': 'shining diamond unique glowing concept premium',
+  'financial projections & ask': 'successful investment growth charts financial forecast',
 };
 
 // Simple string hash to get a stable lock number per slide
@@ -43,24 +43,29 @@ const strHash = (s: string): number => {
 // Returns a keyword-based image URL using LoremFlickr.
 // imageKeyword comes from AI (e.g. "abstract futuristic tech") — so images match slide content.
 // lock=seed ensures the same slide always gets the same image.
-const getSlideImageUrl = (title: string, imageKeyword: string, _idx: number): string => {
+const getSlideImageUrl = (title: string, imageKeyword: string, _idx: number, bullets: string[] = []): string => {
   const titleLower = (title || '').toLowerCase();
+  
+  // Create a descriptive context from the title and first 1-2 bullets
+  const contentContext = bullets.slice(0, 2).join(' ').substring(0, 100);
+  
   const rawKeyword =
     (imageKeyword && imageKeyword.trim())
       ? imageKeyword.trim()
       : SLIDE_IMAGE_MAP[titleLower] || 'startup business technology';
 
-  // Clean to comma-separated keywords (LoremFlickr supports this natively)
+  // Clean to comma-separated keywords
   const kw = rawKeyword
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, '')
     .split(/\s+/)
     .filter(Boolean)
-    .slice(0, 2)
-    .join(',');
+    .slice(0, 3)
+    .join(' ');
 
-  const seed = strHash((title || '') + '|' + kw);
-  return `https://loremflickr.com/600/450/${encodeURIComponent(kw)}/all?lock=${seed}`;
+  const seed = strHash((title || '') + '|' + (bullets[0] || '') + '|' + kw);
+  const prompt = encodeURIComponent(`${title}: ${contentContext}, ${kw}, professional corporate photography, high quality, pinterest aesthetic, cinematic lighting, 8k resolution`);
+  return `https://image.pollinations.ai/prompt/${prompt}?width=800&height=600&seed=${seed}&nologo=true`;
 };
 
 
@@ -547,7 +552,7 @@ const DeckEditor = () => {
                     <img
                       key={`img-${activeSlide}-${currentSlide?.imageKeyword}`}
                       loading="eager"
-                      src={getSlideImageUrl(currentSlide?.title, currentSlide?.imageKeyword, activeSlide)}
+                      src={getSlideImageUrl(currentSlide?.title, currentSlide?.imageKeyword, activeSlide, currentSlide?.bullets)}
                       alt={currentSlide?.title}
                       onError={(e) => {
                         const el = e.target as HTMLImageElement;

@@ -1121,10 +1121,12 @@ app.get('/api/projects/:id/export/pptx', authMiddleware, async (req, res) => {
         }
 
         // LoremFlickr: keyword-based real photo search with lock for consistency
-        const imgKw = (imageKeyword || slideTitle || 'startup')
-          .toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean).slice(0, 2).join(',');
-        const imgLock = Array.from(imgKw).reduce((h, c) => (Math.imul(31, h) + c.charCodeAt(0)) | 0, 0);
-        const imgUrl = `https://loremflickr.com/600/450/${encodeURIComponent(imgKw)}/all?lock=${Math.abs(imgLock) % 10000}`;
+        // Image prompt processing based on content
+        const slideBullets = Array.isArray(slideData?.bullets) ? slideData.bullets.slice(0, 2).join(' ') : (slideData?.content?.substring(0, 100) || '');
+        const imgKw = (imageKeyword || slideTitle || 'startup').toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean).slice(0, 3).join(' ');
+        const imgLock = Array.from(imgKw + slideBullets).reduce((h, c) => (Math.imul(31, h) + c.charCodeAt(0)) | 0, 0);
+        const imgPrompt = encodeURIComponent(`${slideTitle}: ${slideBullets}, ${imgKw}, professional corporate photography, high quality, pinterest aesthetic`);
+        const imgUrl = `https://image.pollinations.ai/prompt/${imgPrompt}?width=800&height=600&seed=${Math.abs(imgLock) % 10000}&nologo=true`;
 
         slide.addText(slideTitle.toUpperCase(), { x: 0.5, y: 0.5, w: "90%", h: 1, fontSize: 28 * fM, color: theme.accent, bold: true });
         
@@ -1212,11 +1214,12 @@ app.get('/api/projects/:id/export/pdf', authMiddleware, async (req, res) => {
             bullets = value.split('\n').filter(b => b.trim().length > 0);
         }
 
-        // LoremFlickr: keyword-based real photo search with lock for consistency
-        const imgKwPdf = (imageKeyword || slideTitle || 'startup')
-          .toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean).slice(0, 2).join(',');
-        const imgLockPdf = Array.from(imgKwPdf).reduce((h, c) => (Math.imul(31, h) + c.charCodeAt(0)) | 0, 0);
-        const imgUrl = `https://loremflickr.com/600/450/${encodeURIComponent(imgKwPdf)}/all?lock=${Math.abs(imgLockPdf) % 10000}`;
+        // Image prompt processing based on content for PDF
+        const slideBulletsPdf = Array.isArray(bullets) ? bullets.slice(0, 2).join(' ') : '';
+        const imgKwPdf = (imageKeyword || slideTitle || 'startup').toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean).slice(0, 3).join(' ');
+        const imgLockPdf = Array.from(imgKwPdf + slideBulletsPdf).reduce((h, c) => (Math.imul(31, h) + c.charCodeAt(0)) | 0, 0);
+        const imgPromptPdf = encodeURIComponent(`${slideTitle}: ${slideBulletsPdf}, ${imgKwPdf}, professional corporate photography, high quality, pinterest aesthetic`);
+        const imgUrl = `https://image.pollinations.ai/prompt/${imgPromptPdf}?width=800&height=600&seed=${Math.abs(imgLockPdf) % 10000}&nologo=true`;
 
         doc.fillColor(`#${theme.accent}`).fontSize(30 * fM).text(slideTitle.toUpperCase(), 50, 50);
         
