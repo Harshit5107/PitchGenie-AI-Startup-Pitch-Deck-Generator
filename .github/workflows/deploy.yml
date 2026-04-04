@@ -3,6 +3,7 @@ name: Deploy Frontend to GitHub Pages
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
@@ -29,6 +30,13 @@ jobs:
           VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
+
+      - name: Verify Build Output 📂
+        run: |
+          if [ ! -d "kano/dist" ]; then
+            echo "Build failed - dist folder not found"
+            exit 1
+          fi
 
       - name: Deploy 🚀
         uses: peaceiris/actions-gh-pages@v3
