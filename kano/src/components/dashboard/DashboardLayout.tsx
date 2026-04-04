@@ -9,6 +9,7 @@ import {
 import { supabase } from "../../lib/supabase";
 import { toast } from "sonner";
 import { ModeToggle } from "../ModeToggle";
+import { BACKEND_URL } from "@/lib/api";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -58,7 +59,7 @@ const DashboardLayout = () => {
 
         // Fetch decks to build notifications
         try {
-          const res = await fetch("http://localhost:3001/api/projects", {
+          const res = await fetch(`${BACKEND_URL}/api/projects`, {
             headers: { "Authorization": `Bearer ${session.access_token}` }
           });
           if (res.ok) {

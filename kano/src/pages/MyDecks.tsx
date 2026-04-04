@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import { FileText, Trash2, Search, Clock, SlidersHorizontal, ArrowUpDown, ChevronDown } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { BACKEND_URL } from "@/lib/api";
 import { toast } from "sonner";
 
 type SortOption = "newest" | "oldest" | "name-asc" | "name-desc";
@@ -23,7 +24,7 @@ const MyDecks = () => {
         return;
       }
       try {
-        const res = await fetch("http://localhost:3001/api/projects", {
+        const res = await fetch(`${BACKEND_URL}/api/projects`, {
           headers: {
             "Authorization": `Bearer ${session.access_token}`
           }
@@ -47,7 +48,7 @@ const MyDecks = () => {
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`http://localhost:3001/api/projects/${id}`, {
+      const res = await fetch(`${BACKEND_URL}/api/projects/${id}`, {
         method: 'DELETE',
         headers: { "Authorization": `Bearer ${session?.access_token}` }
       });

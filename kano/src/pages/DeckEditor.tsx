@@ -4,6 +4,7 @@ import { Download, RefreshCw, GripVertical, Play, Palette, ChevronDown } from "l
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { toast } from "sonner";
+import { BACKEND_URL } from "@/lib/api";
 import ChatBot from "../components/ChatBot";
 import BackgroundDesign from "../components/BackgroundDesign";
 
@@ -184,7 +185,7 @@ const DeckEditor = () => {
           return;
         }
 
-        const res = await fetch("http://localhost:3001/api/projects", {
+        const res = await fetch(`${BACKEND_URL}/api/projects`, {
           headers: { Authorization: `Bearer ${session.access_token}` }
         });
 
@@ -343,7 +344,7 @@ const DeckEditor = () => {
       toast(`Generating ${type.toUpperCase()}...`);
       const { data: { session } } = await supabase.auth.getSession();
       
-      const res = await fetch(`http://localhost:3001/api/projects/${projectData.id}/export/${type}`, {
+      const res = await fetch(`${BACKEND_URL}/api/projects/${projectData.id}/export/${type}`, {
         headers: { "Authorization": `Bearer ${session?.access_token}` }
       });
       
@@ -373,7 +374,7 @@ const DeckEditor = () => {
       toast.loading("Applying theme...", { id: "theme-toast" });
       const { data: { session } } = await supabase.auth.getSession();
       
-      const res = await fetch(`http://localhost:3001/api/projects/${projectData.id}/theme`, {
+      const res = await fetch(`${BACKEND_URL}/api/projects/${projectData.id}/theme`, {
         method: "PATCH",
         headers: { 
           "Content-Type": "application/json",
@@ -434,7 +435,7 @@ const DeckEditor = () => {
         return;
       }
 
-      const res = await fetch(`http://localhost:3001/api/projects/${projectData.id}/regenerate-missing`, {
+      const res = await fetch(`${BACKEND_URL}/api/projects/${projectData.id}/regenerate-missing`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` }
       });
@@ -494,7 +495,7 @@ const DeckEditor = () => {
             const prompt = getFalPrompt(slide.title, slide.imageKeyword, slide.bullets);
             const seed = strHash(slide.title + (slide.bullets[0] || ''));
             
-            const res = await fetch("http://localhost:3001/api/generate-image", {
+            const res = await fetch(`${BACKEND_URL}/api/generate-image`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ prompt, seed })

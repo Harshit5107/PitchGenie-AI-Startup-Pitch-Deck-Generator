@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageCircle, X, Send, Sparkles, Bot, User, Loader2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { BACKEND_URL } from "@/lib/api";
 import { toast } from "sonner";
 
 interface ChatMessage {
@@ -72,7 +73,7 @@ const ChatBot = ({ projectData, onProjectUpdate }: ChatBotProps) => {
       }
 
       const res = await fetch(
-        `http://localhost:3001/api/projects/${projectData.id}/chat`,
+        `${BACKEND_URL}/api/projects/${projectData.id}/chat`,
         {
           method: "POST",
           headers: {

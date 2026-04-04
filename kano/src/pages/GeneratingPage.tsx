@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { toast } from "sonner";
+import { BACKEND_URL } from "@/lib/api";
 
 const messages = [
   "Analyzing your startup idea...",
@@ -53,7 +54,7 @@ const GeneratingPage = () => {
           return;
         }
 
-        const res = await fetch("http://localhost:3001/api/projects", {
+        const res = await fetch(`${BACKEND_URL}/api/projects`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

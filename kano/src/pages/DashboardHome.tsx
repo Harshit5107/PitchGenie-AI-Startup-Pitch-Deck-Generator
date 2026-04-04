@@ -5,6 +5,7 @@ import { PlusCircle, Clock, FileText, TrendingUp, Sparkles, LogIn, FileEdit, Tra
 import { ActivitiesCard } from "@/components/ui/activities-card";
 import { supabase } from "../lib/supabase";
 import { toast } from "sonner";
+import { BACKEND_URL } from "@/lib/api";
 
 const DashboardHome = () => {
   const [decks, setDecks] = useState<any[]>([]);
@@ -29,7 +30,7 @@ const DashboardHome = () => {
         return;
       }
       try {
-        const res = await fetch("http://localhost:3001/api/projects", {
+        const res = await fetch(`${BACKEND_URL}/api/projects`, {
           headers: {
             "Authorization": `Bearer ${session.access_token}`
           }
@@ -53,7 +54,7 @@ const DashboardHome = () => {
     
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`http://localhost:3001/api/projects/${id}`, {
+      const res = await fetch(`${BACKEND_URL}/api/projects/${id}`, {
         method: 'DELETE',
         headers: { "Authorization": `Bearer ${session?.access_token}` }
       });
