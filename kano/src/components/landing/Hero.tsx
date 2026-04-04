@@ -53,7 +53,7 @@ const Hero = () => {
           transition={{ duration: 0.8, delay: 0.8 }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4"
         >
-          <Link to="/dashboard/create" className="btn-gradient flex items-center gap-2 text-base">
+          <Link to="/signup" className="btn-gradient flex items-center gap-2 text-base">
             Generate Pitch Deck
             <ArrowRight className="h-4 w-4" />
           </Link>

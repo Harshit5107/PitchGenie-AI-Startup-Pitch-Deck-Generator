@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Menu, X, Sparkles } from "lucide-react";
+import { ModeToggle } from "../ModeToggle";
 
 const Navbar = () => {
   const [open, setOpen] = useState(false);
@@ -32,6 +33,7 @@ const Navbar = () => {
           <Link to="/signup" className="btn-gradient text-sm !px-5 !py-2">
             Sign Up
           </Link>
+          <ModeToggle />
         </div>
 
         <button onClick={() => setOpen(!open)} className="md:hidden text-foreground">
@@ -50,7 +52,10 @@ const Navbar = () => {
             <a href="#how-it-works" className="text-muted-foreground hover:text-foreground py-2">How It Works</a>
             <a href="#pricing" className="text-muted-foreground hover:text-foreground py-2">Pricing</a>
             <Link to="/login" className="text-muted-foreground hover:text-foreground py-2">Login</Link>
-            <Link to="/signup" className="btn-gradient text-center text-sm">Sign Up</Link>
+            <div className="flex items-center justify-between gap-4 mt-2">
+              <Link to="/signup" className="btn-gradient text-center text-sm flex-1">Sign Up</Link>
+              <ModeToggle />
+            </div>
           </div>
         </motion.div>
       )}

@@ -17,6 +17,53 @@ const THEME_COLORS: Record<string, { bg: string; accent: string; text: string; b
 };
 const DEFAULT_THEME = { bg: '#1a1a1a', accent: '#00bfff', text: '#ffffff', bullet: '#00bfff' };
 
+// Map common slide names to relevant Unsplash search keywords
+const SLIDE_IMAGE_MAP: Record<string, string> = {
+  'problem': 'obstacle challenge frustration',
+  'solution': 'innovation technology solution',
+  'target market': 'customers audience demographics',
+  'product roadmap': 'roadmap planning milestones',
+  'team & traction': 'team collaboration office people',
+  'competitive landscape': 'competition strategy chess',
+  'go-to-market strategy': 'marketing launch growth',
+  'business model & revenue': 'finance money revenue growth',
+  'unique value proposition': 'diamond value premium',
+  'financial projections & ask': 'investment growth chart finance',
+};
+
+// Simple string hash to get a stable lock number per slide
+const strHash = (s: string): number => {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h) % 10000; // keep within 0–9999 range
+};
+
+// Returns a keyword-based image URL using LoremFlickr.
+// imageKeyword comes from AI (e.g. "abstract futuristic tech") — so images match slide content.
+// lock=seed ensures the same slide always gets the same image.
+const getSlideImageUrl = (title: string, imageKeyword: string, _idx: number): string => {
+  const titleLower = (title || '').toLowerCase();
+  const rawKeyword =
+    (imageKeyword && imageKeyword.trim())
+      ? imageKeyword.trim()
+      : SLIDE_IMAGE_MAP[titleLower] || 'startup business technology';
+
+  // Clean to comma-separated keywords (LoremFlickr supports this natively)
+  const kw = rawKeyword
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(',');
+
+  const seed = strHash((title || '') + '|' + kw);
+  return `https://loremflickr.com/600/450/${encodeURIComponent(kw)}/all?lock=${seed}`;
+};
+
+
 const DeckEditor = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -111,6 +158,7 @@ const DeckEditor = () => {
 
     const slideEntries = Object.entries(projectData.generated_content || {})
       .filter(([key]) => !key.startsWith('_'));
+
     return slideEntries.map(([key, value]: any, idx) => {
       const title =
         typeof value === "object" && value !== null
@@ -122,9 +170,18 @@ const DeckEditor = () => {
           ? parseBullets(value.bullets || value.content || "")
           : parseBullets(value);
 
+      // Prefer AI-generated imageKeyword from the slide data
+      const aiImageKeyword =
+        typeof value === "object" && value !== null && value.imageKeyword && String(value.imageKeyword).trim()
+          ? String(value.imageKeyword).trim()
+          : '';
+
+      const imageKeyword = aiImageKeyword || SLIDE_IMAGE_MAP[key.toLowerCase()] || 'startup technology business';
+
       return {
         id: idx,
         title,
+        imageKeyword,
         bullets: bullets.length ? bullets : ["Content missing. Please click 'Fix Missing' to regenerate."],
       };
     });
@@ -133,8 +190,8 @@ const DeckEditor = () => {
   const safeSlides =
     slides.length > 0
       ? slides
-      : [{ id: 0, title: "No Slides", bullets: ["No content generated."] }];
-  
+      : [{ id: 0, title: "No Slides", imageKeyword: "abstract layout", bullets: ["No content generated."] }];
+
   const missingSlides = useMemo(() => {
     return safeSlides.filter((slide: any) => {
       const joined = (slide.bullets || []).join(" ").toLowerCase();
@@ -314,10 +371,13 @@ const DeckEditor = () => {
     }
   };
 
+  const currentSlide = safeSlides[activeSlide];
+  const activeTheme = THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME;
+
   return (
     <div 
       className={isPresentMode ? "fixed inset-0 z-[100] flex flex-col overflow-hidden" : "h-[calc(100vh-7rem)] flex flex-col"}
-      style={isPresentMode ? { backgroundColor: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).bg } : {}}
+      style={isPresentMode ? { backgroundColor: activeTheme.bg } : {}}
     >      
       {isPresentMode && (
         <button 
@@ -437,7 +497,7 @@ const DeckEditor = () => {
 
         {/* Main Preview */}
         <div className={`flex items-center justify-center transition-all duration-300 ${isPresentMode ? 'flex-1 m-0 p-0' : 'flex-1 glass-card p-2 bg-black/40'}`}
-          style={isPresentMode ? { backgroundColor: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).bg } : {}}
+          style={isPresentMode ? { backgroundColor: activeTheme.bg } : {}}
         >
           <motion.div
             layout
@@ -447,7 +507,7 @@ const DeckEditor = () => {
             transition={{ duration: 0.4 }}
             className={`w-full aspect-[16/9] flex flex-col overflow-hidden relative mx-auto ${isPresentMode ? '' : 'rounded-xl border border-border/20 shadow-2xl'}`}
             style={{ 
-              backgroundColor: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).bg, 
+              backgroundColor: activeTheme.bg, 
               maxWidth: isPresentMode ? '100vw' : '100%',
               maxHeight: '100%',
               containerType: 'inline-size',
@@ -455,29 +515,56 @@ const DeckEditor = () => {
             }}
           >
             <BackgroundDesign themeId={projectData?.generated_content?._theme} />
-            <div className="absolute left-[2cqw] top-[2cqw] text-[1cqw] uppercase tracking-widest font-mono z-10" style={{ color: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).bullet + '60' }}>
+            <div className="absolute left-[2cqw] top-[2cqw] text-[1cqw] uppercase tracking-widest font-mono z-10" style={{ color: activeTheme.bullet + '60' }}>
               Slide {activeSlide + 1}
             </div>
             
-            <h2 
-              className={`font-bold leading-tight uppercase relative z-10 ${getFontClasses(true)}`}
-              style={{ color: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).accent }}
-            >
-              {safeSlides[activeSlide]?.title}
-            </h2>
-            
-            <div className="flex-1 overflow-hidden relative z-10">
-              <ul className={`list-disc leading-snug ${getFontClasses(false)}`}
-                style={{ color: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).text }}
-              >
-                {safeSlides[activeSlide]?.bullets.map((point: string, index: number) => (
-                  <li key={`${safeSlides[activeSlide]?.id}-${index}`} className="pl-[0.5cqw]" style={{ ['--marker-color' as any]: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).accent }}>{point.replace(/^- /, '')}</li>
-                ))}
-              </ul>
+            <div className="flex-1 flex flex-row gap-[4cqw] overflow-hidden relative z-10 mt-[2cqw]">
+              <div className="flex-1 flex flex-col justify-center">
+                <h2 
+                  className={`font-bold leading-tight uppercase relative z-10 ${getFontClasses(true)}`}
+                  style={{ color: activeTheme.accent }}
+                >
+                  {currentSlide?.title}
+                </h2>
+                
+                <ul className={`list-disc leading-snug ${getFontClasses(false)}`}
+                  style={{ color: activeTheme.text }}
+                >
+                  {currentSlide?.bullets.map((point: string, index: number) => (
+                    <li key={`${currentSlide?.id}-${index}`} className="pl-[0.5cqw]">{point.replace(/^- /, '')}</li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Image panel – loads a content-specific Unsplash photo */}
+              <div className="w-[45%] flex-shrink-0 flex items-center justify-center pt-[2cqw]">
+                <div
+                  className="w-full aspect-[4/3] rounded-xl overflow-hidden shadow-2xl relative"
+                  style={{ backgroundColor: activeTheme.accent + '20' }}
+                >
+                  {currentSlide?.imageKeyword && (
+                    <img
+                      key={`img-${activeSlide}-${currentSlide?.imageKeyword}`}
+                      loading="eager"
+                      src={getSlideImageUrl(currentSlide?.title, currentSlide?.imageKeyword, activeSlide)}
+                      alt={currentSlide?.title}
+                      onError={(e) => {
+                        const el = e.target as HTMLImageElement;
+                        el.onerror = null;
+                        // Fallback: use picsum with a title-based seed
+                        el.src = `https://picsum.photos/seed/${encodeURIComponent(currentSlide?.title || 'slide')}/600/450`;
+                      }}
+                      className="w-full h-full object-cover transition-all duration-700 shadow-inner"
+                    />
+                  )}
+                  <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-xl pointer-events-none" />
+                </div>
+              </div>
             </div>
             
             <div className="absolute bottom-[2cqw] left-0 right-0 text-center z-10">
-              <span className={`uppercase tracking-widest font-mono ${isPresentMode ? 'text-[1.2cqw]' : 'text-[1cqw]'}`} style={{ color: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).bullet + '50' }}>PitchGenie</span>
+              <span className={`uppercase tracking-widest font-mono ${isPresentMode ? 'text-[1.2cqw]' : 'text-[1cqw]'}`} style={{ color: activeTheme.bullet + '50' }}>PitchGenie</span>
             </div>
             
             {isPresentMode && (

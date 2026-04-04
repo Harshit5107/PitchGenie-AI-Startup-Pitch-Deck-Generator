@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { toast } from "sonner";
+import { ModeToggle } from "../ModeToggle";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -329,6 +330,8 @@ const DashboardLayout = () => {
                 )}
               </AnimatePresence>
             </div>
+
+            <ModeToggle />
 
             {/* ── Profile Avatar ── */}
             <div className="relative" ref={profileRef}>

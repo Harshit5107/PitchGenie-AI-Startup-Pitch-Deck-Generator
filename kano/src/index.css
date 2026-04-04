@@ -6,6 +6,55 @@
 
 @layer base {
   :root {
+    --background: 0 0% 100%;
+    --foreground: 230 40% 4%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 230 40% 4%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 230 40% 4%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 226 70% 98%;
+    --secondary-foreground: 226 70% 15%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 270 90% 65%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 70% 45%;
+    --success-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 217 91% 60%;
+
+    --radius: 1rem;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 230 40% 4%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 40% 96.1%;
+    --sidebar-accent-foreground: 230 40% 4%;
+    --sidebar-border: 214.3 31.8% 91.4%;
+    --sidebar-ring: 217 91% 60%;
+
+    --surface: 210 40% 98%;
+    --glow-purple: 270 90% 65%;
+    --glow-blue: 217 91% 60%;
+    --glow-cyan: 190 90% 60%;
+  }
+
+  .dark {
     --background: 230 40% 4%;
     --foreground: 210 40% 98%;
 
@@ -15,18 +64,15 @@
     --popover: 230 30% 7%;
     --popover-foreground: 210 40% 98%;
 
-    /* Electric Neon Blue for Primary */
     --primary: 217 91% 60%;
     --primary-foreground: 222 47% 11%;
 
-    /* Deep Blue/Indigo for Secondary */
     --secondary: 226 70% 15%;
     --secondary-foreground: 210 40% 98%;
 
     --muted: 226 30% 12%;
     --muted-foreground: 215 20% 65%;
 
-    /* Vibrant Purple for Accent */
     --accent: 270 90% 65%;
     --accent-foreground: 210 40% 98%;
 
@@ -39,8 +85,6 @@
     --border: 226 40% 15%;
     --input: 226 40% 15%;
     --ring: 217 91% 60%;
-
-    --radius: 1rem;
 
     --sidebar-background: 230 40% 5%;
     --sidebar-foreground: 210 40% 98%;
@@ -67,8 +111,8 @@
     /* Clean subtle grid background for AI tech feel */
     background-image: 
       radial-gradient(ellipse 80% 80% at 50% -20%,rgba(120,119,198,0.2),transparent),
-      linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+      linear-gradient(to right, hsl(var(--foreground)/0.02) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--foreground)/0.02) 1px, transparent 1px);
     background-size: 100% 100%, 40px 40px, 40px 40px;
     background-attachment: fixed;
   }
