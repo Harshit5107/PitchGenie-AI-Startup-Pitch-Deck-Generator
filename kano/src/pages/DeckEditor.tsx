@@ -571,21 +571,23 @@ const DeckEditor = () => {
             </div>
             
             <div className="flex-1 flex flex-row gap-[4cqw] overflow-hidden relative z-10 mt-[2cqw]">
-              <div className="flex-1 flex flex-col justify-center">
+              <div className="flex-1 flex flex-col min-h-0">
                 <h2 
-                  className={`font-bold leading-tight uppercase relative z-10 ${getFontClasses(true)}`}
+                  className={`font-bold leading-tight uppercase relative z-10 flex-shrink-0 ${getFontClasses(true)}`}
                   style={{ color: activeTheme.accent }}
                 >
                   {currentSlide?.title}
                 </h2>
                 
-                <ul className={`list-disc leading-snug ${getFontClasses(false)}`}
-                  style={{ color: activeTheme.text }}
-                >
-                  {currentSlide?.bullets.map((point: string, index: number) => (
-                    <li key={`${currentSlide?.id}-${index}`} className="pl-[0.5cqw]">{point.replace(/^- /, '')}</li>
-                  ))}
-                </ul>
+                <div className="flex-1 overflow-y-auto scrollbar-thin pr-[1cqw]">
+                  <ul className={`list-disc leading-snug ${getFontClasses(false)}`}
+                    style={{ color: activeTheme.text }}
+                  >
+                    {currentSlide?.bullets.map((point: string, index: number) => (
+                      <li key={`${currentSlide?.id}-${index}`} className="pl-[0.5cqw] mb-[0.2cqw]">{point.replace(/^- /, '')}</li>
+                    ))}
+                  </ul>
+                </div>
               </div>
 
               {/* Image panel – loads a content-specific Unsplash photo */}
