@@ -40,32 +40,18 @@ const strHash = (s: string): number => {
   return Math.abs(h) % 10000; // keep within 0–9999 range
 };
 
-// Returns a keyword-based image URL using LoremFlickr.
-// imageKeyword comes from AI (e.g. "abstract futuristic tech") — so images match slide content.
-// lock=seed ensures the same slide always gets the same image.
-const getSlideImageUrl = (title: string, imageKeyword: string, _idx: number, bullets: string[] = []): string => {
-  const titleLower = (title || '').toLowerCase();
-  
-  // Create a descriptive context from the title and first 1-2 bullets
+// We now use Fal.ai via a backend proxy for premium images.
+// This function prepares the prompt for the backend.
+const getFalPrompt = (title: string, imageKeyword: string, bullets: string[] = []): string => {
   const contentContext = bullets.slice(0, 2).join(' ').substring(0, 100);
-  
-  const rawKeyword =
-    (imageKeyword && imageKeyword.trim())
-      ? imageKeyword.trim()
-      : SLIDE_IMAGE_MAP[titleLower] || 'startup business technology';
-
-  // Clean to comma-separated keywords
-  const kw = rawKeyword
+  const kw = (imageKeyword || title || 'startup')
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, '')
     .split(/\s+/)
-    .filter(Boolean)
     .slice(0, 3)
     .join(' ');
-
-  const seed = strHash((title || '') + '|' + (bullets[0] || '') + '|' + kw);
-  const prompt = encodeURIComponent(`${title}: ${contentContext}, ${kw}, professional corporate photography, high quality, pinterest aesthetic, cinematic lighting, 8k resolution`);
-  return `https://image.pollinations.ai/prompt/${prompt}?width=800&height=600&seed=${seed}&nologo=true`;
+  
+  return `${title}: ${contentContext}, ${kw}`;
 };
 
 
@@ -81,6 +67,7 @@ const DeckEditor = () => {
   const [isPresentMode, setIsPresentMode] = useState(false);
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [isChangingTheme, setIsChangingTheme] = useState(false);
+  const [slideImages, setSlideImages] = useState<Record<number, { url: string; loading: boolean }>>({});
 
   const parseBullets = (value: any): string[] => {
     if (Array.isArray(value)) {
@@ -361,6 +348,50 @@ const DeckEditor = () => {
     missingSlides.length,
   ]);
 
+  // Premium Image Generation (Fal.ai)
+  useEffect(() => {
+    if (!safeSlides.length || isLoadingProject) return;
+
+    const generateMissingImages = async () => {
+      for (const slide of safeSlides) {
+        if (!slideImages[slide.id] && !slideImages[slide.id]?.loading) {
+          // Initialize loading state
+          setSlideImages(prev => ({ ...prev, [slide.id]: { url: '', loading: true } }));
+          
+          try {
+            const prompt = getFalPrompt(slide.title, slide.imageKeyword, slide.bullets);
+            const seed = strHash(slide.title + (slide.bullets[0] || ''));
+            
+            const res = await fetch("http://localhost:3001/api/generate-image", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt, seed })
+            });
+            
+            if (res.ok) {
+              const data = await res.json();
+              setSlideImages(prev => ({ ...prev, [slide.id]: { url: data.url, loading: false } }));
+            } else {
+              throw new Error("Failed to generate image");
+            }
+          } catch (err) {
+            console.error("Fal.ai Generation Error:", err);
+            // Fallback to picsum or just stop loading
+            setSlideImages(prev => ({ 
+              ...prev, 
+              [slide.id]: { 
+                url: `https://picsum.photos/seed/${slide.id}/800/600`, 
+                loading: false 
+              } 
+            }));
+          }
+        }
+      }
+    };
+
+    generateMissingImages();
+  }, [safeSlides, isLoadingProject]);
+
   const getFontClasses = (isTitle: boolean) => {
     const size = projectData?.generated_content?._fontSize || 'medium';
     if (isTitle) {
@@ -548,20 +579,23 @@ const DeckEditor = () => {
                   className="w-full aspect-[4/3] rounded-xl overflow-hidden shadow-2xl relative"
                   style={{ backgroundColor: activeTheme.accent + '20' }}
                 >
-                  {currentSlide?.imageKeyword && (
+                  {slideImages[currentSlide?.id]?.loading ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20 backdrop-blur-sm">
+                      <RefreshCw className="h-8 w-8 text-primary animate-spin mb-2" />
+                      <span className="text-[1.2cqw] font-medium text-white/50 animate-pulse">Generating Premium Image...</span>
+                    </div>
+                  ) : slideImages[currentSlide?.id]?.url ? (
                     <img
-                      key={`img-${activeSlide}-${currentSlide?.imageKeyword}`}
+                      key={`img-${activeSlide}-${slideImages[currentSlide?.id]?.url}`}
                       loading="eager"
-                      src={getSlideImageUrl(currentSlide?.title, currentSlide?.imageKeyword, activeSlide, currentSlide?.bullets)}
+                      src={slideImages[currentSlide?.id]?.url}
                       alt={currentSlide?.title}
-                      onError={(e) => {
-                        const el = e.target as HTMLImageElement;
-                        el.onerror = null;
-                        // Fallback: use picsum with a title-based seed
-                        el.src = `https://picsum.photos/seed/${encodeURIComponent(currentSlide?.title || 'slide')}/600/450`;
-                      }}
                       className="w-full h-full object-cover transition-all duration-700 shadow-inner"
                     />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                      <RefreshCw className="h-6 w-6 text-primary animate-spin" />
+                    </div>
                   )}
                   <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-xl pointer-events-none" />
                 </div>

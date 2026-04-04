@@ -1069,6 +1069,73 @@ ${targetSlides.map(s => `  "${s}": { "title": "${s}", "imageKeyword": "abstract 
 });
 
 // ==========================================
+// FAL.AI IMAGE GENERATION PROXY
+// ==========================================
+app.post('/api/generate-image', async (req, res) => {
+  const { prompt, seed } = req.body;
+  if (!prompt) return res.status(400).json({ error: "Prompt is required" });
+
+  try {
+    const response = await fetch("https://fal.run/fal-ai/fast-sdxl", {
+      method: "POST",
+      headers: {
+        "Authorization": `Key ${process.env.FAL_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        prompt: `professional pitch deck style, photography, high quality, pinterest aesthetic, ${prompt}`,
+        seed: seed || Math.floor(Math.random() * 1000000),
+        image_size: "landscape_4_3"
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error("Fal.ai Error:", err);
+      throw new Error("Failed to generate image from Fal.ai");
+    }
+
+    const data = await response.json();
+    const imageUrl = data.images?.[0]?.url;
+
+    if (!imageUrl) throw new Error("No image URL returned from Fal.ai");
+
+    res.json({ url: imageUrl });
+  } catch (error) {
+    console.error("Image Generation Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper to generate Fal.ai image
+const generateFalImage = async (title, imageKeyword, bullets = []) => {
+  try {
+    const slideBullets = Array.isArray(bullets) ? bullets.slice(0, 2).join(' ') : '';
+    const kw = (imageKeyword || title || 'startup').toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean).slice(0, 3).join(' ');
+    
+    const response = await fetch("https://fal.run/fal-ai/fast-sdxl", {
+      method: "POST",
+      headers: {
+        "Authorization": `Key ${process.env.FAL_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        prompt: `professional pitch deck style, photography, high quality, pinterest aesthetic, ${title}: ${slideBullets}, ${kw}`,
+        image_size: "landscape_4_3"
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return data.images?.[0]?.url;
+    }
+  } catch (err) {
+    console.error("Fal.ai Generation Error:", err);
+  }
+  return `https://picsum.photos/seed/${encodeURIComponent(title)}/800/600`;
+};
+
+// ==========================================
 // 6. EXPORTS (PPTX & PDF)
 // ==========================================
 
@@ -1120,13 +1187,8 @@ app.get('/api/projects/:id/export/pptx', authMiddleware, async (req, res) => {
             bullets = value.split('\n').filter(b => b.trim().length > 0);
         }
 
-        // LoremFlickr: keyword-based real photo search with lock for consistency
-        // Image prompt processing based on content
-        const slideBullets = Array.isArray(slideData?.bullets) ? slideData.bullets.slice(0, 2).join(' ') : (slideData?.content?.substring(0, 100) || '');
-        const imgKw = (imageKeyword || slideTitle || 'startup').toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean).slice(0, 3).join(' ');
-        const imgLock = Array.from(imgKw + slideBullets).reduce((h, c) => (Math.imul(31, h) + c.charCodeAt(0)) | 0, 0);
-        const imgPrompt = encodeURIComponent(`${slideTitle}: ${slideBullets}, ${imgKw}, professional corporate photography, high quality, pinterest aesthetic`);
-        const imgUrl = `https://image.pollinations.ai/prompt/${imgPrompt}?width=800&height=600&seed=${Math.abs(imgLock) % 10000}&nologo=true`;
+        // Generate Fal.ai Image
+        const imgUrl = await generateFalImage(slideTitle, imageKeyword, bullets);
 
         slide.addText(slideTitle.toUpperCase(), { x: 0.5, y: 0.5, w: "90%", h: 1, fontSize: 28 * fM, color: theme.accent, bold: true });
         
@@ -1206,20 +1268,16 @@ app.get('/api/projects/:id/export/pdf', authMiddleware, async (req, res) => {
         let slideTitle = key;
         let bullets = [];
         let imageKeyword = '';
-        if (typeof value === 'object' && value !== null) {
+        if (typeof value === "object" && value !== null) {
             slideTitle = value.title || key;
-            bullets = value.bullets || [];
+            bullets = Array.isArray(value.bullets) ? value.bullets : (value.content ? [value.content] : []);
             imageKeyword = value.imageKeyword || `${slideTitle} corporate business`;
-        } else if (typeof value === 'string') {
+        } else if (typeof value === "string") {
             bullets = value.split('\n').filter(b => b.trim().length > 0);
         }
 
-        // Image prompt processing based on content for PDF
-        const slideBulletsPdf = Array.isArray(bullets) ? bullets.slice(0, 2).join(' ') : '';
-        const imgKwPdf = (imageKeyword || slideTitle || 'startup').toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean).slice(0, 3).join(' ');
-        const imgLockPdf = Array.from(imgKwPdf + slideBulletsPdf).reduce((h, c) => (Math.imul(31, h) + c.charCodeAt(0)) | 0, 0);
-        const imgPromptPdf = encodeURIComponent(`${slideTitle}: ${slideBulletsPdf}, ${imgKwPdf}, professional corporate photography, high quality, pinterest aesthetic`);
-        const imgUrl = `https://image.pollinations.ai/prompt/${imgPromptPdf}?width=800&height=600&seed=${Math.abs(imgLockPdf) % 10000}&nologo=true`;
+        // Generate Fal.ai Image for PDF
+        const imgUrl = await generateFalImage(slideTitle, imageKeyword, bullets);
 
         doc.fillColor(`#${theme.accent}`).fontSize(30 * fM).text(slideTitle.toUpperCase(), 50, 50);
         
