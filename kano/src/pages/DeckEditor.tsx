@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Download, RefreshCw, GripVertical, Play, Palette, ChevronDown } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -68,6 +68,7 @@ const DeckEditor = () => {
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [isChangingTheme, setIsChangingTheme] = useState(false);
   const [slideImages, setSlideImages] = useState<Record<number, { url: string; loading: boolean }>>({});
+  const lastScrollTime = useRef(0);
 
   const parseBullets = (value: any): string[] => {
     if (Array.isArray(value)) {
@@ -283,6 +284,28 @@ const DeckEditor = () => {
       toast.error(`Error: ${err.message}`, { id: "theme-toast" });
     } finally {
       setIsChangingTheme(false);
+    }
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    // Prevent scrolling from triggering too fast
+    const now = Date.now();
+    if (now - lastScrollTime.current < 600) return;
+
+    if (Math.abs(e.deltaY) > 20) {
+      if (e.deltaY > 0) {
+        // Scroll down -> Next Slide
+        if (activeSlide < safeSlides.length - 1) {
+          setActiveSlide(prev => prev + 1);
+          lastScrollTime.current = now;
+        }
+      } else {
+        // Scroll up -> Previous Slide
+        if (activeSlide > 0) {
+          setActiveSlide(prev => prev - 1);
+          lastScrollTime.current = now;
+        }
+      }
     }
   };
 
@@ -547,7 +570,9 @@ const DeckEditor = () => {
         )}
 
         {/* Main Preview */}
-        <div className={`flex items-center justify-center transition-all duration-300 ${isPresentMode ? 'flex-1 m-0 p-0' : 'flex-1 glass-card p-2 bg-black/40'}`}
+        <div 
+          onWheel={handleWheel}
+          className={`flex items-center justify-center transition-all duration-300 ${isPresentMode ? 'flex-1 m-0 p-0' : 'flex-1 glass-card p-2 bg-black/40'}`}
           style={isPresentMode ? { backgroundColor: activeTheme.bg } : {}}
         >
           <motion.div
