@@ -5,53 +5,14 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@supabase/supabase-js';
 import PptxGenJS from 'pptxgenjs';
 import PDFDocument from 'pdfkit';
-import { Resend } from 'resend';
 
 dotenv.config();
-
-// ==========================================
-// RESEND EMAIL CLIENT + OTP STORE
-// ==========================================
-const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
-
-// In-memory OTP store: email -> { otp, expiresAt, attempts }
-const otpStore = new Map();
-
-const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
-
-const getOtpEmailHtml = (otp, name = '') => `
-<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;padding:0;background:#0f0f1a;}
-.wrapper{max-width:520px;margin:40px auto;background:linear-gradient(135deg,#1a1040 0%,#0f0f1a 100%);border-radius:16px;border:1px solid rgba(167,139,250,0.2);overflow:hidden;}
-.header{background:linear-gradient(135deg,#7c3aed,#a78bfa);padding:32px 40px;text-align:center;}
-.logo{font-size:26px;font-weight:800;color:white;letter-spacing:-0.5px;}
-.body{padding:40px;text-align:center;}
-.greeting{color:#c4b5fd;font-size:15px;margin-bottom:8px;}
-.title{color:#fff;font-size:22px;font-weight:700;margin-bottom:24px;}
-.otp-box{display:inline-block;background:linear-gradient(135deg,rgba(124,58,237,0.3),rgba(167,139,250,0.15));border:2px solid rgba(167,139,250,0.5);border-radius:12px;padding:20px 48px;margin:8px 0 24px;}
-.otp{font-size:42px;font-weight:800;color:#a78bfa;letter-spacing:10px;}
-.note{color:#9ca3af;font-size:13px;line-height:1.6;margin-top:16px;}
-.expires{color:#f59e0b;font-weight:600;}
-.footer{padding:24px 40px;border-top:1px solid rgba(167,139,250,0.1);text-align:center;color:#6b7280;font-size:12px;}
-</style></head>
-<body><div class="wrapper">
-  <div class="header"><div class="logo">&#x2728; PitchGenie</div></div>
-  <div class="body">
-    <div class="greeting">Hi ${name || 'there'} &#x1F44B;</div>
-    <div class="title">Verify your email address</div>
-    <p style="color:#9ca3af;font-size:14px;margin-bottom:24px;">Use the code below to complete your signup. Valid for <span class="expires">10 minutes</span>.</p>
-    <div class="otp-box"><div class="otp">${otp}</div></div>
-    <p class="note">If you didn't request this, you can safely ignore this email.<br/>Never share this code with anyone.</p>
-  </div>
-  <div class="footer">&#169; 2025 PitchGenie &middot; AI Startup Pitch Deck Generator</div>
-</div></body></html>`;
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // Global Supabase Admin/Anon Client
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
@@ -521,82 +482,6 @@ app.post('/api/auth/login', async (req, res) => {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) return res.status(error.status || 400).json({ error: error.message });
   res.json({ user: data.user, access_token: data.session?.access_token });
-});
-
-// ------------------------------------------
-// 🔐 CUSTOM OTP FLOW (RESEND SDK)
-// ------------------------------------------
-app.post('/api/auth/send-otp', async (req, res) => {
-  try {
-    const { email, name } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email is required' });
-
-    // Rate limit: 30 seconds
-    const existing = otpStore.get(email);
-    if (existing && Date.now() < existing.expiresAt - 9.5 * 60 * 1000) {
-      return res.status(429).json({ error: 'Please wait 30 seconds.' });
-    }
-
-    const otp = generateOtp();
-    const expiresAt = Date.now() + 10 * 60 * 1000;
-    otpStore.set(email, { otp, expiresAt, attempts: 0 });
-
-    console.log(`Attempting to send OTP to ${email} via Resend...`);
-
-    const { error: emailError } = await resend.emails.send({
-      from: FROM_EMAIL,
-      to: email,
-      subject: 'Your PitchGenie Verification Code',
-      html: getOtpEmailHtml(otp, name),
-    });
-
-    if (emailError) {
-      console.error('RESEND SDK ERROR:', emailError);
-      return res.status(500).json({ 
-        error: 'Failed to send OTP email', 
-        details: emailError.message || 'Check if you are sending to an authorized test email.' 
-      });
-    }
-
-    console.log(`✅ OTP successfully sent to ${email}`);
-    res.json({ success: true, message: 'OTP sent successfully' });
-  } catch (err) {
-    console.error('SERVER ERROR IN SEND-OTP:', err);
-    res.status(500).json({ error: 'Failed to send OTP', details: err.message });
-  }
-});
-
-app.post('/api/auth/verify-otp', async (req, res) => {
-  try {
-    const { email, otp } = req.body;
-    if (!email || !otp) return res.status(400).json({ error: 'Email and OTP are required' });
-
-    const record = otpStore.get(email);
-    if (!record) return res.status(400).json({ error: 'No OTP found for this email. Please request a new one.' });
-
-    if (Date.now() > record.expiresAt) {
-      otpStore.delete(email);
-      return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
-    }
-
-    if (record.attempts >= 5) {
-      otpStore.delete(email);
-      return res.status(400).json({ error: 'Too many failed attempts. Please request a new OTP.' });
-    }
-
-    if (record.otp !== String(otp).trim()) {
-      otpStore.set(email, { ...record, attempts: record.attempts + 1 });
-      const remaining = 5 - (record.attempts + 1);
-      return res.status(400).json({ error: `Invalid OTP. ${remaining} attempt(s) remaining.` });
-    }
-
-    otpStore.delete(email);
-    console.log(`✅ OTP verified for ${email}`);
-    res.json({ success: true, message: 'OTP verified successfully' });
-  } catch (err) {
-    console.error('SERVER ERROR IN VERIFY-OTP:', err);
-    res.status(500).json({ error: 'Failed to verify OTP', details: err.message });
-  }
 });
 
 // ==========================================

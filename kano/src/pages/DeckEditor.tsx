@@ -55,6 +55,69 @@ const getFalPrompt = (title: string, imageKeyword: string, bullets: string[] = [
 };
 
 
+// Reusable slide content component
+const SlideContent = ({ slide, activeTheme, getFontClasses, activeSlide, slideImages, isPresentMode }: any) => {
+  return (
+    <>
+      <div className="absolute left-[2cqw] top-[2cqw] text-[1cqw] uppercase tracking-widest font-mono z-10" style={{ color: activeTheme.bullet + '60' }}>
+        Slide {activeSlide + 1}
+      </div>
+
+      <div className="flex-1 flex flex-row gap-[4cqw] overflow-hidden relative z-10 mt-[2cqw] h-full">
+        <div className="flex-1 flex flex-col min-h-0 justify-center">
+          <h2 
+            className={`font-bold leading-tight uppercase relative z-10 flex-shrink-0 ${getFontClasses(true)}`}
+            style={{ color: activeTheme.accent }}
+          >
+            {slide?.title}
+          </h2>
+          
+          <div className="flex-1 overflow-y-auto scrollbar-thin pr-[1cqw]">
+            <ul className={`list-disc leading-snug ${getFontClasses(false)}`}
+              style={{ color: activeTheme.text }}
+            >
+              {slide?.bullets.map((point: string, index: number) => (
+                <li key={`${slide?.id}-${index}`} className="pl-[0.5cqw] mb-[0.2cqw]">{point.replace(/^- /, '')}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <div className="w-[45%] flex-shrink-0 flex items-center justify-center">
+          <div
+            className="w-full aspect-[4/3] rounded-xl overflow-hidden shadow-2xl relative"
+            style={{ backgroundColor: activeTheme.accent + '20' }}
+          >
+            {slideImages[slide?.id]?.loading ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20 backdrop-blur-sm">
+                <RefreshCw className="h-8 w-8 text-primary animate-spin mb-2" />
+                <span className="text-[1.2cqw] font-medium text-white/50 animate-pulse">Generating Premium Image...</span>
+              </div>
+            ) : slideImages[slide?.id]?.url ? (
+              <img
+                key={`img-${activeSlide}-${slideImages[slide?.id]?.url}`}
+                loading="eager"
+                src={slideImages[slide?.id]?.url}
+                alt={slide?.title}
+                className="w-full h-full object-cover transition-all duration-700 shadow-inner"
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                <RefreshCw className="h-6 w-6 text-primary animate-spin" />
+              </div>
+            )}
+            <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-xl pointer-events-none" />
+          </div>
+        </div>
+      </div>
+      
+      <div className="absolute bottom-[2cqw] left-0 right-0 text-center z-10">
+        <span className={`uppercase tracking-widest font-mono ${isPresentMode ? 'text-[1.2cqw]' : 'text-[1cqw]'}`} style={{ color: activeTheme.bullet + '50' }}>PitchGenie</span>
+      </div>
+    </>
+  );
+};
+
 const DeckEditor = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -69,6 +132,9 @@ const DeckEditor = () => {
   const [isChangingTheme, setIsChangingTheme] = useState(false);
   const [slideImages, setSlideImages] = useState<Record<number, { url: string; loading: boolean }>>({});
   const lastScrollTime = useRef(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const slideRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const isAutoScrolling = useRef(false);
 
   const parseBullets = (value: any): string[] => {
     if (Array.isArray(value)) {
@@ -202,6 +268,49 @@ const DeckEditor = () => {
   useEffect(() => {
     if (activeSlide > safeSlides.length - 1) setActiveSlide(0);
   }, [activeSlide, safeSlides.length]);
+
+  // Sidebar click navigation with smooth scroll
+  const scrollToSlide = (idx: number) => {
+    setActiveSlide(idx);
+    if (!isPresentMode && slideRefs.current[idx]) {
+      isAutoScrolling.current = true;
+      slideRefs.current[idx]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Reset auto-scroll flag after animation
+      setTimeout(() => { isAutoScrolling.current = false; }, 800);
+    }
+  };
+
+  // Sync sidebar highlight with scroll position using IntersectionObserver
+  useEffect(() => {
+    if (isPresentMode) return;
+
+    const options = {
+      root: scrollContainerRef.current,
+      threshold: 0.5,
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      if (isAutoScrolling.current) return;
+      
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const id = Number(entry.target.getAttribute('data-slide-id'));
+          setActiveSlide(id);
+        }
+      });
+    }, options);
+
+    const currentRefs = slideRefs.current;
+    Object.values(currentRefs).forEach(ref => {
+      if (ref) observer.observe(ref);
+    });
+
+    return () => {
+      Object.values(currentRefs).forEach(ref => {
+        if (ref) observer.unobserve(ref);
+      });
+    };
+  }, [isPresentMode, safeSlides.length, projectData?.id]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -542,7 +651,7 @@ const DeckEditor = () => {
               {safeSlides.map((s, i) => (
                 <button
                   key={s.id}
-                  onClick={() => setActiveSlide(i)}
+                  onClick={() => scrollToSlide(i)}
                   className={`w-full text-left rounded-xl p-3 transition-all duration-300 group relative overflow-hidden ${
                     i === activeSlide
                       ? "bg-primary/10 border-primary/30 shadow-[0_0_15px_-3px_hsl(var(--primary)/0.2)]"
@@ -569,98 +678,59 @@ const DeckEditor = () => {
           </div>
         )}
 
-        {/* Main Preview */}
+        {/* Main Preview Container */}
         <div 
-          onWheel={handleWheel}
-          className={`flex items-center justify-center transition-all duration-300 ${isPresentMode ? 'flex-1 m-0 p-0' : 'flex-1 glass-card p-2 bg-black/40'}`}
+          ref={scrollContainerRef}
+          onWheel={isPresentMode ? handleWheel : undefined}
+          className={`flex-1 transition-all duration-300 ${
+            isPresentMode ? 'm-0 p-0 overflow-hidden' : 'glass-card p-4 overflow-y-auto scrollbar-thin space-y-12 pb-32 bg-black/40'
+          }`}
           style={isPresentMode ? { backgroundColor: activeTheme.bg } : {}}
         >
-          <motion.div
-            layout
-            key={`slide-${activeSlide}`}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.4 }}
-            className={`w-full aspect-[16/9] flex flex-col overflow-hidden relative mx-auto ${isPresentMode ? '' : 'rounded-xl border border-border/20 shadow-2xl'}`}
-            style={{ 
-              backgroundColor: activeTheme.bg, 
-              maxWidth: isPresentMode ? '100vw' : '100%',
-              maxHeight: '100%',
-              containerType: 'inline-size',
-              padding: isPresentMode ? '3cqw' : '4cqw'
-            }}
-          >
-            <BackgroundDesign themeId={projectData?.generated_content?._theme} />
-            <div className="absolute left-[2cqw] top-[2cqw] text-[1cqw] uppercase tracking-widest font-mono z-10" style={{ color: activeTheme.bullet + '60' }}>
-              Slide {activeSlide + 1}
-            </div>
-            
-            <div className="flex-1 flex flex-row gap-[4cqw] overflow-hidden relative z-10 mt-[2cqw]">
-              <div className="flex-1 flex flex-col min-h-0">
-                <h2 
-                  className={`font-bold leading-tight uppercase relative z-10 flex-shrink-0 ${getFontClasses(true)}`}
-                  style={{ color: activeTheme.accent }}
-                >
-                  {currentSlide?.title}
-                </h2>
-                
-                <div className="flex-1 overflow-y-auto scrollbar-thin pr-[1cqw]">
-                  <ul className={`list-disc leading-snug ${getFontClasses(false)}`}
-                    style={{ color: activeTheme.text }}
-                  >
-                    {currentSlide?.bullets.map((point: string, index: number) => (
-                      <li key={`${currentSlide?.id}-${index}`} className="pl-[0.5cqw] mb-[0.2cqw]">{point.replace(/^- /, '')}</li>
-                    ))}
-                  </ul>
-                </div>
+          {isPresentMode ? (
+            // Present Mode: single slide view
+            <motion.div
+              layout
+              key={`present-${activeSlide}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="w-full h-full flex items-center justify-center"
+            >
+              <div
+                className="w-full aspect-[16/9] relative mx-auto"
+                style={{ 
+                  backgroundColor: activeTheme.bg,
+                  maxWidth: '100vw',
+                  padding: '3cqw',
+                  containerType: 'inline-size'
+                }}
+              >
+                <BackgroundDesign themeId={projectData?.generated_content?._theme} />
+                <SlideContent slide={safeSlides[activeSlide]} activeTheme={activeTheme} getFontClasses={getFontClasses} activeSlide={activeSlide} slideImages={slideImages} isPresentMode={true} />
               </div>
-
-              {/* Image panel – loads a content-specific Unsplash photo */}
-              <div className="w-[45%] flex-shrink-0 flex items-center justify-center pt-[2cqw]">
-                <div
-                  className="w-full aspect-[4/3] rounded-xl overflow-hidden shadow-2xl relative"
-                  style={{ backgroundColor: activeTheme.accent + '20' }}
-                >
-                  {slideImages[currentSlide?.id]?.loading ? (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20 backdrop-blur-sm">
-                      <RefreshCw className="h-8 w-8 text-primary animate-spin mb-2" />
-                      <span className="text-[1.2cqw] font-medium text-white/50 animate-pulse">Generating Premium Image...</span>
-                    </div>
-                  ) : slideImages[currentSlide?.id]?.url ? (
-                    <img
-                      key={`img-${activeSlide}-${slideImages[currentSlide?.id]?.url}`}
-                      loading="eager"
-                      src={slideImages[currentSlide?.id]?.url}
-                      alt={currentSlide?.title}
-                      className="w-full h-full object-cover transition-all duration-700 shadow-inner"
-                    />
-                  ) : (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                      <RefreshCw className="h-6 w-6 text-primary animate-spin" />
-                    </div>
-                  )}
-                  <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-xl pointer-events-none" />
-                </div>
+            </motion.div>
+          ) : (
+            // Editor Mode: continuous scroll list
+            safeSlides.map((s, i) => (
+              <div
+                key={`editor-slide-${s.id}`}
+                ref={el => slideRefs.current[i] = el}
+                data-slide-id={i}
+                className={`w-full aspect-[16/9] relative mx-auto rounded-xl border transition-all duration-500 overflow-hidden ${
+                  i === activeSlide ? 'border-primary/50 ring-1 ring-primary/20 shadow-2xl scale-[1.01]' : 'border-border/20 opacity-80'
+                }`}
+                style={{ 
+                  backgroundColor: activeTheme.bg,
+                  maxWidth: '100%',
+                  padding: '4cqw',
+                  containerType: 'inline-size'
+                }}
+              >
+                <BackgroundDesign themeId={projectData?.generated_content?._theme} />
+                <SlideContent slide={s} activeTheme={activeTheme} getFontClasses={getFontClasses} activeSlide={i} slideImages={slideImages} isPresentMode={false} />
               </div>
-            </div>
-            
-            <div className="absolute bottom-[2cqw] left-0 right-0 text-center z-10">
-              <span className={`uppercase tracking-widest font-mono ${isPresentMode ? 'text-[1.2cqw]' : 'text-[1cqw]'}`} style={{ color: activeTheme.bullet + '50' }}>PitchGenie</span>
-            </div>
-            
-            {isPresentMode && (
-              <>
-                <div 
-                  className="absolute left-0 top-0 bottom-0 w-1/4 cursor-pointer pointer-events-auto" 
-                  onClick={() => setActiveSlide(prev => (prev > 0 ? prev - 1 : prev))}
-                />
-                <div 
-                  className="absolute right-0 top-0 bottom-0 w-1/4 cursor-pointer pointer-events-auto" 
-                  onClick={() => setActiveSlide(prev => (prev < safeSlides.length - 1 ? prev + 1 : prev))}
-                />
-              </>
-            )}
-          </motion.div>
+            ))
+          )}
         </div>
       </div>
 
