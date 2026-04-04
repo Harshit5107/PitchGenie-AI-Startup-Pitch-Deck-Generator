@@ -43,6 +43,8 @@ const GeneratingPage = () => {
     }
 
     const generateAI = async () => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 65000);
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
@@ -57,7 +59,8 @@ const GeneratingPage = () => {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${session.access_token}`
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: controller.signal,
         });
         
         if (!res.ok) {
@@ -70,8 +73,14 @@ const GeneratingPage = () => {
         // Navigate to editor with real project data
         navigate("/dashboard/editor", { state: { project: data.project } });
       } catch (err: any) {
-        toast.error("Failed: " + err.message);
+        const msg =
+          err?.name === "AbortError"
+            ? "Generation timed out. Please try again with fewer slides or retry once."
+            : err?.message || "Generation failed";
+        toast.error("Failed: " + msg);
         navigate("/dashboard/create");
+      } finally {
+        window.clearTimeout(timeoutId);
       }
     };
     

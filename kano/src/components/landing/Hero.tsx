@@ -1,8 +1,12 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { ArrowRight, Play } from "lucide-react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 const Hero = () => {
+  const [showVideo, setShowVideo] = useState(false);
+
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16">
       {/* Background effects */}
@@ -53,14 +57,28 @@ const Hero = () => {
             Generate Pitch Deck
             <ArrowRight className="h-4 w-4" />
           </Link>
-          <button className="btn-outline-glow flex items-center gap-2 text-base">
+          <button 
+            onClick={() => setShowVideo(true)}
+            className="btn-outline-glow flex items-center gap-2 text-base"
+          >
             <Play className="h-4 w-4" />
             View Demo
           </button>
         </motion.div>
 
-
       </div>
+
+      <Dialog open={showVideo} onOpenChange={setShowVideo}>
+        <DialogContent className="max-w-[1000px] w-[90vw] p-0 overflow-hidden bg-black/90 border-white/10 shadow-2xl">
+          <video
+            src="/demo.mp4"
+            autoPlay
+            controls
+            playsInline
+            className="w-full h-auto max-h-[80vh] object-contain rounded-lg outline-none"
+          />
+        </DialogContent>
+      </Dialog>
     </section>
   );
 };

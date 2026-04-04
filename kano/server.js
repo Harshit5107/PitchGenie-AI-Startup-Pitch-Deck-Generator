@@ -21,6 +21,161 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.VITE_GEMINI_API_KEY || "dummy-key");
+const SLIDES_PER_BATCH = 15;
+const MAX_GENERATION_ATTEMPTS = 2;
+const MODEL_REQUEST_TIMEOUT_MS = 35000;
+const TOTAL_GENERATION_TIMEOUT_MS = 55000;
+const MODEL_FALLBACK_CHAIN = [
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemma-3-4b-it",
+];
+
+const chunkArray = (items = [], chunkSize = 3) => {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const withTimeout = async (promise, ms, label = "operation") => {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const clipIdea = (idea = "", maxLength = 120) => {
+  const compact = String(idea).replace(/\s+/g, " ").trim();
+  if (!compact) return "The startup solves a high-impact market problem.";
+  if (compact.length <= maxLength) return compact;
+  return `${compact.slice(0, maxLength).trimEnd()}...`;
+};
+
+const parseIdeaFields = (idea = "") => {
+  const fields = {};
+  const text = String(idea);
+  const regex = /([A-Za-z][A-Za-z &/_-]{1,40})\s*:\s*([^.\n]+)/g;
+  let match = regex.exec(text);
+  while (match) {
+    const key = normalizeKey(match[1]);
+    const value = String(match[2] || "").trim();
+    if (key && value) fields[key] = value;
+    match = regex.exec(text);
+  }
+  return fields;
+};
+
+const buildDeterministicFallbackBullets = (idea, slideName) => {
+  const fields = parseIdeaFields(idea);
+  const startup = fields.name || fields.startup || "this startup";
+  const problem = fields.problem || "a meaningful customer pain point";
+  const solution = fields.solution || "a product-led solution";
+  const market = fields.market || "a focused high-intent customer segment";
+  const revenue = fields.revenue || "a recurring and scalable monetization model";
+  const focus = clipIdea(idea);
+  const bySlide = {
+    "problem": [
+      `${startup} addresses ${problem}, which creates cost, delay, and quality issues for users.`,
+      "Current alternatives are fragmented, manual, or expensive, causing repeated churn pain.",
+      "The urgency is visible through lost revenue, low productivity, and poor customer outcomes.",
+      "This gap is large enough to justify immediate adoption and budget allocation.",
+    ],
+    "solution": [
+      `${startup} delivers ${solution} designed for rapid onboarding and daily usage.`,
+      "The product simplifies key workflows with automation, visibility, and measurable outcomes.",
+      "Implementation is lightweight, reducing time-to-value for teams and decision makers.",
+      "The approach is differentiated by reliability, speed, and user-first experience.",
+    ],
+    "target market": [
+      `Initial ICP is ${market}, where pain intensity and willingness to pay are both high.`,
+      "Go-to-market starts with narrow segments to maximize conversion and referenceability.",
+      "Expansion follows adjacent customer profiles with similar needs and larger contract values.",
+      "Market capture strategy balances fast adoption with sustainable CAC payback.",
+    ],
+    "business model revenue": [
+      `Revenue model: ${revenue}.`,
+      "Pricing is structured to align value delivered with customer usage and scale.",
+      "Upsell paths include premium automation, advanced analytics, and enterprise controls.",
+      "Unit economics target strong gross margins with predictable recurring cash flow.",
+    ],
+  };
+
+  const normalizedSlide = normalizeKey(slideName);
+  const matched = Object.entries(bySlide).find(([k]) => normalizedSlide.includes(k));
+  if (matched) return matched[1];
+
+  return [
+    `${slideName}: ${startup} focuses on solving ${problem} using ${solution}.`,
+    "Execution plan prioritizes MVP delivery, rapid feedback loops, and measurable traction.",
+    `Commercial strategy targets ${market} with a repeatable sales and onboarding motion.`,
+    `Growth is measured through activation, retention, conversion, and revenue quality. (${focus})`,
+  ];
+};
+
+const sanitizeAiText = (text = "") =>
+  String(text)
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .replace(/\r/g, "")
+    .trim();
+
+const extractPlainTextBullets = (text = "") => {
+  const lines = sanitizeAiText(text)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const bulletLines = lines
+    .filter((line) => /^([-*•]|\d+[.)])\s+/.test(line))
+    .map((line) => line.replace(/^([-*•]|\d+[.)])\s+/, "").trim())
+    .filter(Boolean);
+
+  if (bulletLines.length) return bulletLines.slice(0, 6);
+
+  const sentenceLines = sanitizeAiText(text)
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 10);
+
+  return sentenceLines.slice(0, 6);
+};
+
+const isRetriableModelError = (error) => {
+  const status = Number(error?.status || 0);
+  return status === 429 || status === 503 || status === 500;
+};
+
+const generateWithModelFallback = async (prompt) => {
+  let lastError = null;
+
+  for (const modelName of MODEL_FALLBACK_CHAIN) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await withTimeout(
+        model.generateContent(prompt),
+        MODEL_REQUEST_TIMEOUT_MS,
+        `Model ${modelName}`
+      );
+      return result.response?.text?.().trim() || "";
+    } catch (error) {
+      lastError = error;
+      console.error(`Model ${modelName} failed:`, error?.status, error?.message);
+      continue;
+    }
+  }
+
+  throw lastError || new Error("All configured models failed");
+};
 
 const normalizeKey = (value = "") =>
   String(value)
@@ -53,12 +208,74 @@ const extractJsonObject = (rawText = "") => {
   }
 };
 
+const textResponseToSlides = (rawText, selectedSlideNames) => {
+  const text = sanitizeAiText(rawText);
+  if (!text) return {};
+
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const collected = {};
+  let currentSlide = null;
+
+  for (const line of lines) {
+    const normalizedLine = normalizeKey(line.replace(/^#+\s*/, "").replace(/:$/, ""));
+    const matchedSlide = selectedSlideNames.find((slide) => normalizedLine === normalizeKey(slide));
+    if (matchedSlide) {
+      currentSlide = matchedSlide;
+      if (!collected[currentSlide]) collected[currentSlide] = [];
+      continue;
+    }
+
+    if (!currentSlide) continue;
+    if (/^([-*•]|\d+[.)])\s+/.test(line)) {
+      const bullet = line.replace(/^([-*•]|\d+[.)])\s+/, "").trim();
+      if (bullet) collected[currentSlide].push(bullet);
+    }
+  }
+
+  const parsed = {};
+  const hasSectionedContent = Object.keys(collected).length > 0;
+  for (const slide of selectedSlideNames) {
+    const fromSection = (collected[slide] || []).slice(0, 6);
+    const fromPlain = hasSectionedContent ? [] : extractPlainTextBullets(text).slice(0, 6);
+    const bullets = fromSection.length ? fromSection : fromPlain;
+    if (bullets.length) {
+      parsed[slide] = { title: slide, bullets };
+    }
+  }
+
+  return parsed;
+};
+
+const unwrapGeneratedContentPayload = (parsed, expectedSlideNames = []) => {
+  if (!parsed || typeof parsed !== "object") return null;
+
+  const expectedSet = new Set(expectedSlideNames.map((name) => normalizeKey(name)));
+  const parsedEntries = Object.entries(parsed);
+  const matchedCount = parsedEntries.filter(([key, value]) => {
+    if (expectedSet.has(normalizeKey(key))) return true;
+    const maybeTitle = value && typeof value === "object" ? value.title : "";
+    return expectedSet.has(normalizeKey(maybeTitle || ""));
+  }).length;
+
+  if (matchedCount > 0) return parsed;
+
+  const knownContainers = ["slides", "deck", "generated_content", "content", "data"];
+  for (const containerKey of knownContainers) {
+    const containerValue = parsed[containerKey];
+    if (containerValue && typeof containerValue === "object") {
+      return containerValue;
+    }
+  }
+
+  return parsed;
+};
+
 const toBulletArray = (value) => {
   if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean);
   if (typeof value === "string") {
     return value
-      .split(/\r?\n|•|-/)
-      .map((line) => line.trim())
+      .split(/\r?\n|•|\u2022/)
+      .map((line) => line.replace(/^[-*•]\s*/, "").trim())
       .filter(Boolean);
   }
   return [];
@@ -88,6 +305,10 @@ RULES:
 - Content must feel professional, creative, and specific to this startup idea.
 - Do NOT use generic filler. Every bullet must add real value.
 - You MUST return content for EVERY requested slide, no omissions.
+- Do NOT ask follow-up questions.
+- Do NOT ask for more details.
+- Do NOT output placeholders like "share details", "provide info", or "let's build".
+- If user input is minimal, infer realistic assumptions and still produce complete slide bullets.
 
 Return ONLY valid JSON in this exact format:
 {
@@ -95,7 +316,7 @@ Return ONLY valid JSON in this exact format:
   "${slideNames[1] || 'Solution'}": { "title": "${slideNames[1] || 'Solution'}", "bullets": ["bullet 1", "bullet 2"] }
 }`;
 
-const normalizeGeneratedContent = (rawContent, selectedSlideNames) => {
+const normalizeGeneratedContent = (rawContent, selectedSlideNames, idea = "") => {
   const normalized = {};
   const sourceEntries =
     rawContent && typeof rawContent === "object" ? Object.entries(rawContent) : [];
@@ -121,7 +342,7 @@ const normalizeGeneratedContent = (rawContent, selectedSlideNames) => {
     if (!matchedValue) {
       normalized[slide] = {
         title: slide.toUpperCase(),
-        bullets: ["Content generation incomplete. Please regenerate this slide."]
+        bullets: buildDeterministicFallbackBullets(idea, slide)
       };
       continue;
     }
@@ -136,7 +357,7 @@ const normalizeGeneratedContent = (rawContent, selectedSlideNames) => {
         ? toBulletArray(matchedValue.bullets || matchedValue.content || "")
         : toBulletArray(matchedValue);
 
-    const fallbackBullets = ["Content generation incomplete. Please regenerate this slide."];
+    const fallbackBullets = buildDeterministicFallbackBullets(idea, slide);
     const finalBullets = bullets.length ? bullets.slice(0, 6) : fallbackBullets;
 
     normalized[slide] = {
@@ -146,6 +367,70 @@ const normalizeGeneratedContent = (rawContent, selectedSlideNames) => {
   }
 
   return normalized;
+};
+
+const generateSlidesWithRetries = async (idea, requestedSlides) => {
+  const pendingSlides = [...requestedSlides];
+  const resolvedContent = {};
+
+  for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS && pendingSlides.length; attempt += 1) {
+    const prompt = buildSlidePrompt(idea, pendingSlides);
+
+    try {
+      const outputText = await generateWithModelFallback(prompt);
+      const parsedContent = extractJsonObject(outputText) || textResponseToSlides(outputText, pendingSlides);
+      const unwrappedContent = unwrapGeneratedContentPayload(parsedContent, pendingSlides);
+
+      if (!unwrappedContent || typeof unwrappedContent !== "object") {
+        throw new Error("AI returned invalid JSON format");
+      }
+
+      const normalizedChunk = normalizeGeneratedContent(unwrappedContent, pendingSlides, idea);
+      const stillMissing = [];
+
+      for (const slide of pendingSlides) {
+        const slideData = normalizedChunk[slide];
+        if (isMissingSlideContent(slideData)) {
+          stillMissing.push(slide);
+        } else {
+          resolvedContent[slide] = slideData;
+        }
+      }
+
+      pendingSlides.length = 0;
+      pendingSlides.push(...stillMissing);
+    } catch (error) {
+      console.error(`AI generation attempt ${attempt} failed:`, error);
+    }
+
+    if (pendingSlides.length && attempt < MAX_GENERATION_ATTEMPTS) {
+      await sleep(600);
+    }
+  }
+
+  if (pendingSlides.length) {
+    Object.assign(resolvedContent, normalizeGeneratedContent({}, pendingSlides, idea));
+  }
+
+  return resolvedContent;
+};
+
+const generateDeckContent = async (idea, selectedSlides) => {
+  const batches = chunkArray(selectedSlides, SLIDES_PER_BATCH);
+  let combined = {};
+  const startedAt = Date.now();
+
+  for (const batch of batches) {
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > TOTAL_GENERATION_TIMEOUT_MS) {
+      Object.assign(combined, normalizeGeneratedContent({}, batch, idea));
+      continue;
+    }
+    const batchContent = await generateSlidesWithRetries(idea, batch);
+    combined = { ...combined, ...batchContent };
+  }
+
+  return combined;
 };
 
 const isMissingSlideContent = (slideValue) => {
@@ -161,7 +446,12 @@ const isMissingSlideContent = (slideValue) => {
     joined.includes("content pending") ||
     joined.includes("content missing") ||
     joined.includes("content generation incomplete") ||
-    joined.includes("no content generated")
+    joined.includes("no content generated") ||
+    joined.includes("deck focus for") ||
+    joined.includes("let's build") ||
+    joined.includes("initial startup idea details") ||
+    joined.includes("provide more details") ||
+    joined.includes("share more details")
   );
 };
 
@@ -235,28 +525,7 @@ app.post('/api/projects', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Idea and valid selectedSlides array are required" });
     }
 
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash",
-      generationConfig: { responseMimeType: "application/json" }
-    });
-    let generatedContent = {};
-
-    // 6. AI GENERATION (Batch chunking to avoid 429 Rate Limits)
-    const prompt = buildSlidePrompt(idea, selectedSlides);
-      
-    try {
-      const result = await model.generateContent(prompt);
-      const outputText = result.response.text().trim();
-      const parsedContent = extractJsonObject(outputText);
-      if (!parsedContent || typeof parsedContent !== "object") {
-        throw new Error("AI returned invalid JSON format");
-      }
-      generatedContent = normalizeGeneratedContent(parsedContent, selectedSlides);
-    } catch (e) {
-      console.error("Parse or AI error:", e);
-      // Fallback
-      generatedContent = normalizeGeneratedContent({}, selectedSlides);
-    }
+    let generatedContent = await generateDeckContent(idea, selectedSlides);
 
     // Store theme in generated_content metadata
     if (theme) {
@@ -311,25 +580,7 @@ app.post('/api/projects/:id/regenerate-missing', authMiddleware, async (req, res
       return res.json({ success: true, project, regeneratedSlides: [] });
     }
 
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash",
-      generationConfig: { responseMimeType: "application/json" }
-    });
-    const prompt = buildSlidePrompt(project.idea, missingSlides);
-    let regeneratedContent = {};
-
-    try {
-      const result = await model.generateContent(prompt);
-      const outputText = result.response.text().trim();
-      const parsedContent = extractJsonObject(outputText);
-      if (!parsedContent || typeof parsedContent !== "object") {
-        throw new Error("AI returned invalid JSON for regenerate");
-      }
-      regeneratedContent = normalizeGeneratedContent(parsedContent, missingSlides);
-    } catch (genErr) {
-      console.error("Regenerate parse or AI error:", genErr);
-      regeneratedContent = normalizeGeneratedContent({}, missingSlides);
-    }
+    const regeneratedContent = await generateDeckContent(project.idea, missingSlides);
 
     const updatedGeneratedContent = { ...existingContent, ...regeneratedContent };
 
@@ -425,7 +676,277 @@ app.patch('/api/projects/:id/theme', authMiddleware, async (req, res) => {
 });
 
 // ==========================================
-// 5. EXPORTS (PPTX & PDF)
+// 5. CHATBOT — AI-powered deck editing via chat
+// ==========================================
+
+app.post('/api/projects/:id/chat', authMiddleware, async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: "A message is required" });
+    }
+
+    // 1. Load the project
+    const { data: project, error: fetchError } = await req.supabaseAuth
+      .from('projects')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (fetchError || !project) {
+      return res.status(404).json({ error: "Project not found or access denied" });
+    }
+
+    const existingContent = project.generated_content && typeof project.generated_content === 'object'
+      ? project.generated_content
+      : {};
+
+    const allSlideNames = Object.keys(existingContent).filter(k => !k.startsWith('_'));
+    const userMsgLower = normalizeKey(message);
+    const msgLower = message.toLowerCase();
+
+    // ============================================
+    // 2. DETECT THEME / COLOR CHANGE REQUESTS
+    // ============================================
+    const themeKeywords = [
+      'color', 'colour', 'theme', 'rang', 'design', 'look', 'style',
+      'dark', 'light', 'neon', 'minimal', 'fire', 'elegant', 'corporate',
+      'background', 'accent', 'gradient'
+    ];
+    const isThemeRequest = themeKeywords.some(kw => msgLower.includes(kw));
+
+    if (isThemeRequest) {
+      // Try to match a specific theme from the message
+      const themeAliases = {
+        'modern-gradient':  ['modern', 'gradient', 'purple', 'violet'],
+        'clean-minimal':    ['clean', 'minimal', 'light', 'white', 'simple', 'safed'],
+        'corporate-pro':    ['corporate', 'pro', 'blue', 'professional', 'neela'],
+        'bold-neon':        ['bold', 'neon', 'red', 'pink', 'laal', 'gulabi'],
+        'elegant-dark':     ['elegant', 'gold', 'golden', 'dark', 'sona', 'luxury'],
+        'startup-fire':     ['fire', 'orange', 'startup', 'warm', 'narangi'],
+      };
+
+      let matchedTheme = null;
+      for (const [themeId, aliases] of Object.entries(themeAliases)) {
+        if (aliases.some(alias => msgLower.includes(alias))) {
+          matchedTheme = themeId;
+          break;
+        }
+      }
+
+      // If no specific theme matched, pick a different one from current
+      if (!matchedTheme) {
+        const currentTheme = existingContent._theme || 'corporate-pro';
+        const themeIds = Object.keys(THEME_COLORS);
+        const otherThemes = themeIds.filter(t => t !== currentTheme);
+        matchedTheme = otherThemes[Math.floor(Math.random() * otherThemes.length)] || 'modern-gradient';
+      }
+
+      // Apply the theme
+      const updatedContent = { ...existingContent, _theme: matchedTheme };
+
+      const { data: updatedProject, error: updateError } = await req.supabaseAuth
+        .from('projects')
+        .update({ generated_content: updatedContent })
+        .eq('id', req.params.id)
+        .eq('user_id', req.user.id)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+
+      const themeName = matchedTheme.replace(/-/g, ' ');
+      const reply = `🎨 Theme changed to "${themeName}"! Your deck preview has been updated with the new colors.`;
+
+      return res.json({ success: true, project: updatedProject, reply });
+    }
+
+    // ============================================
+    // 2.5 DETECT FONT SIZE CHANGE REQUESTS
+    // ============================================
+    const fontSizeKeywords = ['font size', 'text size', 'size change', 'bada ', 'chota ', 'larger', 'smaller', 'increase font', 'decrease font', 'bigger', 'size badha', 'size ghata'];
+    const isFontSizeRequest = fontSizeKeywords.some(kw => msgLower.includes(kw)) || (msgLower.includes('font') && (msgLower.includes('size') || msgLower.includes('increase') || msgLower.includes('decrease') || msgLower.includes('bada') || msgLower.includes('chota')));
+    
+    if (isFontSizeRequest) {
+      let currentSize = existingContent._fontSize || 'medium';
+      let nextSize = 'medium';
+      
+      const increaseKeywords = ['increase', 'larger', 'bigger', 'bada'];
+      const decreaseKeywords = ['decrease', 'smaller', 'chota', 'ghata'];
+      const isIncrease = increaseKeywords.some(kw => msgLower.includes(kw));
+      const isDecrease = decreaseKeywords.some(kw => msgLower.includes(kw));
+
+      if (isIncrease) {
+         if (currentSize === 'small') nextSize = 'medium';
+         else if (currentSize === 'medium') nextSize = 'large';
+         else nextSize = 'extra-large';
+      } else if (isDecrease) {
+         if (currentSize === 'extra-large') nextSize = 'large';
+         else if (currentSize === 'large') nextSize = 'medium';
+         else nextSize = 'small';
+      } else if (msgLower.includes('large') || msgLower.includes('bada')) {
+         nextSize = 'large';
+      } else if (msgLower.includes('small') || msgLower.includes('chota')) {
+         nextSize = 'small';
+      } else if (msgLower.includes('extra') || msgLower.includes('huge')) {
+         nextSize = 'extra-large';
+      } else {
+         nextSize = currentSize === 'medium' ? 'large' : 'medium';
+      }
+
+      if (nextSize !== currentSize) {
+        const updatedContent = { ...existingContent, _fontSize: nextSize };
+
+        const { data: updatedProject, error: updateError } = await req.supabaseAuth
+          .from('projects')
+          .update({ generated_content: updatedContent })
+          .eq('id', req.params.id)
+          .eq('user_id', req.user.id)
+          .select()
+          .single();
+
+        if (updateError) throw updateError;
+        return res.json({ success: true, project: updatedProject, reply: `🔠 Font size updated to ${nextSize}!` });
+      } else {
+        return res.json({ success: true, project, reply: `🔠 Font size is already at ${nextSize} limit.` });
+      }
+    }
+
+    // ============================================
+    // 3. CONTENT CHANGE — Use AI to modify slides
+    // ============================================
+    let targetSlides = allSlideNames.filter(slide => {
+      const normalizedSlide = normalizeKey(slide);
+      return userMsgLower.includes(normalizedSlide);
+    });
+
+    // If user says "all", or we can't detect a specific slide, modify all
+    if (!targetSlides.length || userMsgLower.includes('all slide') || userMsgLower.includes('entire deck') || userMsgLower.includes('whole deck') || userMsgLower.includes('sab slide') || userMsgLower.includes('saare slide') || userMsgLower.includes('pura deck')) {
+      targetSlides = allSlideNames;
+    }
+
+    // Build context-aware prompt for Gemini
+    const currentBulletsContext = targetSlides.map(slide => {
+      const slideData = existingContent[slide];
+      const bullets = slideData && typeof slideData === 'object'
+        ? toBulletArray(slideData.bullets || slideData.content || '')
+        : toBulletArray(slideData);
+      return `## ${slide}\nCurrent bullets:\n${bullets.map(b => `- ${b}`).join('\n')}`;
+    }).join('\n\n');
+
+    const chatPrompt = `You are an elite AI pitch deck editor. The user has a pitch deck for: "${project.idea}"
+
+Here are the slides they want you to modify, along with the current content:
+
+${currentBulletsContext}
+
+The user's instruction: "${message}"
+
+RULES:
+- Apply the user's requested changes precisely.
+- Keep the same slide structure — return updated bullets for each slide.
+- Each slide should have 4-5 powerful, concise bullets (1-2 sentences each).
+- Make bullets professional, specific, creative and data-driven where possible.
+- If the user asks to "make it more professional/technical/simple/creative", adapt the tone accordingly.
+- Do NOT add placeholder text. Every bullet must add real value.
+- Do NOT ask follow-up questions.
+- The NEW bullets MUST be DIFFERENT from the current ones — do NOT return the same content.
+
+Return ONLY valid JSON in this exact format (no markdown, no code fences):
+{
+${targetSlides.map(s => `  "${s}": { "title": "${s}", "bullets": ["bullet 1", "bullet 2", "bullet 3", "bullet 4"] }`).join(',\n')}
+}`;
+
+    let rawOutput;
+    try {
+      rawOutput = await generateWithModelFallback(chatPrompt);
+    } catch (aiError) {
+      console.error("AI generation failed in chat:", aiError);
+      return res.json({
+        success: false,
+        project: project,
+        reply: "⚠️ AI is currently busy (rate limited). Please wait 30-60 seconds and try again. Your deck was NOT modified."
+      });
+    }
+
+    if (!rawOutput || rawOutput.trim().length < 20) {
+      return res.json({
+        success: false,
+        project: project,
+        reply: "⚠️ AI returned an empty response. Please try again in a few seconds."
+      });
+    }
+
+    const parsed = extractJsonObject(rawOutput) || textResponseToSlides(rawOutput, targetSlides);
+    const unwrapped = unwrapGeneratedContentPayload(parsed, targetSlides);
+
+    if (!unwrapped || typeof unwrapped !== 'object' || Object.keys(unwrapped).length === 0) {
+      return res.json({
+        success: false,
+        project: project,
+        reply: "⚠️ AI returned an invalid format. Please rephrase your request and try again."
+      });
+    }
+
+    const normalized = normalizeGeneratedContent(unwrapped, targetSlides, project.idea);
+
+    // Check if content actually changed
+    let contentChanged = false;
+    for (const [slide, newData] of Object.entries(normalized)) {
+      const oldData = existingContent[slide];
+      const oldBullets = oldData && typeof oldData === 'object' ? (oldData.bullets || []).join('|') : '';
+      const newBullets = newData && typeof newData === 'object' ? (newData.bullets || []).join('|') : '';
+      if (oldBullets !== newBullets) {
+        contentChanged = true;
+        break;
+      }
+    }
+
+    if (!contentChanged) {
+      return res.json({
+        success: false,
+        project: project,
+        reply: "⚠️ AI couldn't generate different content this time. Please try rephrasing your request or wait a moment and try again."
+      });
+    }
+
+    // Merge changes into existing content
+    const updatedContent = { ...existingContent };
+    for (const [slide, data] of Object.entries(normalized)) {
+      updatedContent[slide] = data;
+    }
+
+    // Save to database
+    const { data: updatedProject, error: updateError } = await req.supabaseAuth
+      .from('projects')
+      .update({ generated_content: updatedContent })
+      .eq('id', req.params.id)
+      .eq('user_id', req.user.id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    // Build a friendly reply
+    const slideList = targetSlides.length <= 3
+      ? targetSlides.join(', ')
+      : `${targetSlides.length} slides`;
+    const reply = `✅ Done! I've updated **${slideList}** based on your instructions. Check the preview — the changes are live!`;
+
+    return res.json({ success: true, project: updatedProject, reply });
+
+  } catch (err) {
+    console.error("Chat endpoint error:", err);
+    return res.status(500).json({
+      error: "Failed to process your request",
+      details: err.message
+    });
+  }
+});
+
+// ==========================================
+// 6. EXPORTS (PPTX & PDF)
 // ==========================================
 
 app.get('/api/projects/:id/export/pptx', authMiddleware, async (req, res) => {
@@ -442,20 +963,26 @@ app.get('/api/projects/:id/export/pptx', authMiddleware, async (req, res) => {
     const themeId = data.generated_content?._theme || 'corporate-pro';
     const theme = THEME_COLORS[themeId] || THEME_COLORS['corporate-pro'];
 
+    const fontSizeSetting = data.generated_content?._fontSize || 'medium';
+    let fM = 1;
+    if (fontSizeSetting === 'small') fM = 0.85;
+    if (fontSizeSetting === 'large') fM = 1.15;
+    if (fontSizeSetting === 'extra-large') fM = 1.3;
+
     let pres = new PptxGenJS();
     pres.layout = 'LAYOUT_16x9';
 
     // Title slide
     let titleSlide = pres.addSlide();
     titleSlide.background = { color: theme.bg };
-    titleSlide.addText("PitchGenie", { x: 0.5, y: 0.5, w: "90%", h: 1, fontSize: 18, color: theme.bullet });
-    titleSlide.addText(data.idea, { x: 0.5, y: 2, w: "90%", h: 2, fontSize: 36, color: theme.text, bold: true, align: "center", valign: "middle" });
-    titleSlide.addText("Generated by AI", { x: 0.5, y: 5.5, w: "90%", h: 1, fontSize: 14, color: theme.bullet, align: "center" });
+    titleSlide.addText("PitchGenie", { x: 0.5, y: 0.5, w: "90%", h: 1, fontSize: 18 * fM, color: theme.bullet });
+    titleSlide.addText(data.idea, { x: 0.5, y: 2, w: "90%", h: 2, fontSize: 36 * fM, color: theme.text, bold: true, align: "center", valign: "middle" });
+    titleSlide.addText("Generated by AI", { x: 0.5, y: 5.5, w: "90%", h: 1, fontSize: 14 * fM, color: theme.bullet, align: "center" });
 
     // Content slides
     if (data.generated_content) {
       for (const [key, value] of Object.entries(data.generated_content)) {
-        if (key === '_theme') continue;
+        if (key.startsWith('_')) continue;
         let slide = pres.addSlide();
         slide.background = { color: theme.bg };
         
@@ -469,11 +996,11 @@ app.get('/api/projects/:id/export/pptx', authMiddleware, async (req, res) => {
             bullets = value.split('\\n').filter(b => b.trim().length > 0);
         }
 
-        slide.addText(slideTitle.toUpperCase(), { x: 0.5, y: 0.5, w: "90%", h: 1, fontSize: 28, color: theme.accent, bold: true });
+        slide.addText(slideTitle.toUpperCase(), { x: 0.5, y: 0.5, w: "90%", h: 1, fontSize: 28 * fM, color: theme.accent, bold: true });
         
         let bulletOptions = { 
             x: 0.5, y: 1.5, w: "90%", h: 5.5, 
-            fontSize: 18, color: theme.text, 
+            fontSize: 18 * fM, color: theme.text, 
             bullet: { code: "25CF" }, 
             valign: "top",
             autoFit: true,
@@ -514,6 +1041,12 @@ app.get('/api/projects/:id/export/pdf', authMiddleware, async (req, res) => {
     const themeId = data.generated_content?._theme || 'corporate-pro';
     const theme = THEME_COLORS[themeId] || THEME_COLORS['corporate-pro'];
 
+    const fontSizeSetting = data.generated_content?._fontSize || 'medium';
+    let fM = 1;
+    if (fontSizeSetting === 'small') fM = 0.85;
+    if (fontSizeSetting === 'large') fM = 1.15;
+    if (fontSizeSetting === 'extra-large') fM = 1.3;
+
     const doc = new PDFDocument({ layout: 'landscape', size: 'A4' });
     
     res.setHeader('Content-disposition', `attachment; filename=PitchDeck-${data.id}.pdf`);
@@ -522,14 +1055,14 @@ app.get('/api/projects/:id/export/pdf', authMiddleware, async (req, res) => {
 
     // Title page
     doc.rect(0, 0, doc.page.width, doc.page.height).fill(`#${theme.bg}`);
-    doc.fillColor(`#${theme.bullet}`).fontSize(14).text('PitchGenie', 50, 50);
-    doc.fillColor(`#${theme.text}`).fontSize(28).text(data.idea, 50, doc.page.height / 2 - 50, { width: doc.page.width - 100, align: 'center' });
-    doc.fillColor(`#${theme.bullet}`).fontSize(12).text('Generated by AI', 50, doc.page.height - 50, { align: 'center' });
+    doc.fillColor(`#${theme.bullet}`).fontSize(14 * fM).text('PitchGenie', 50, 50);
+    doc.fillColor(`#${theme.text}`).fontSize(28 * fM).text(data.idea, 50, doc.page.height / 2 - 50, { width: doc.page.width - 100, align: 'center' });
+    doc.fillColor(`#${theme.bullet}`).fontSize(12 * fM).text('Generated by AI', 50, doc.page.height - 50, { align: 'center' });
 
     // Content pages
     if (data.generated_content) {
       for (const [key, value] of Object.entries(data.generated_content)) {
-        if (key === '_theme') continue;
+        if (key.startsWith('_')) continue;
         doc.addPage();
         doc.rect(0, 0, doc.page.width, doc.page.height).fill(`#${theme.bg}`);
         
@@ -542,9 +1075,9 @@ app.get('/api/projects/:id/export/pdf', authMiddleware, async (req, res) => {
             bullets = value.split('\\n').filter(b => b.trim().length > 0);
         }
 
-        doc.fillColor(`#${theme.accent}`).fontSize(30).text(slideTitle.toUpperCase(), 50, 50);
+        doc.fillColor(`#${theme.accent}`).fontSize(30 * fM).text(slideTitle.toUpperCase(), 50, 50);
         
-        doc.fillColor(`#${theme.text}`).fontSize(16);
+        doc.fillColor(`#${theme.text}`).fontSize(16 * fM);
         let yPos = 120;
         bullets.forEach(b => {
             const text = `${b.replace(/^- /, '')}`;

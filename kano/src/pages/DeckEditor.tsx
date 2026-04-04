@@ -1,9 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Download, RefreshCw, GripVertical, Play, Palette, ChevronDown } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { toast } from "sonner";
+import ChatBot from "../components/ChatBot";
+import BackgroundDesign from "../components/BackgroundDesign";
 
 const THEME_COLORS: Record<string, { bg: string; accent: string; text: string; bullet: string }> = {
   'modern-gradient': { bg: '#1a1040', accent: '#a78bfa', text: '#ffffff', bullet: '#c4b5fd' },
@@ -108,7 +110,7 @@ const DeckEditor = () => {
     if (!projectData?.generated_content) return [];
 
     const slideEntries = Object.entries(projectData.generated_content || {})
-      .filter(([key]) => key !== '_theme');
+      .filter(([key]) => !key.startsWith('_'));
     return slideEntries.map(([key, value]: any, idx) => {
       const title =
         typeof value === "object" && value !== null
@@ -141,7 +143,8 @@ const DeckEditor = () => {
         joined.includes("content pending") ||
         joined.includes("content missing") ||
         joined.includes("content generation incomplete") ||
-        joined.includes("no content generated")
+        joined.includes("no content generated") ||
+        joined.includes("deck focus for")
       );
     });
   }, [safeSlides]);
@@ -296,6 +299,21 @@ const DeckEditor = () => {
     missingSlides.length,
   ]);
 
+  const getFontClasses = (isTitle: boolean) => {
+    const size = projectData?.generated_content?._fontSize || 'medium';
+    if (isTitle) {
+      if (size === 'small') return isPresentMode ? 'text-[3cqw] mb-[2cqw]' : 'text-[2.5cqw] mb-[1.5cqw]';
+      if (size === 'large') return isPresentMode ? 'text-[4cqw] mb-[3cqw]' : 'text-[3.5cqw] mb-[2.5cqw]';
+      if (size === 'extra-large') return isPresentMode ? 'text-[4.5cqw] mb-[3.5cqw]' : 'text-[4cqw] mb-[3cqw]';
+      return isPresentMode ? 'text-[3.5cqw] mb-[2.5cqw]' : 'text-[3cqw] mb-[2cqw]';
+    } else {
+      if (size === 'small') return isPresentMode ? 'text-[1.5cqw] space-y-[1cqw] pl-[2.5cqw]' : 'text-[1.2cqw] space-y-[0.7cqw] pl-[2cqw]';
+      if (size === 'large') return isPresentMode ? 'text-[2.2cqw] space-y-[1.4cqw] pl-[3.5cqw]' : 'text-[1.8cqw] space-y-[1.1cqw] pl-[3cqw]';
+      if (size === 'extra-large') return isPresentMode ? 'text-[2.6cqw] space-y-[1.6cqw] pl-[4cqw]' : 'text-[2.1cqw] space-y-[1.3cqw] pl-[3.5cqw]';
+      return isPresentMode ? 'text-[1.8cqw] space-y-[1.2cqw] pl-[3cqw]' : 'text-[1.5cqw] space-y-[0.9cqw] pl-[2.5cqw]';
+    }
+  };
+
   return (
     <div 
       className={isPresentMode ? "fixed inset-0 z-[100] flex flex-col overflow-hidden" : "h-[calc(100vh-7rem)] flex flex-col"}
@@ -436,19 +454,20 @@ const DeckEditor = () => {
               padding: isPresentMode ? '3cqw' : '4cqw'
             }}
           >
-            <div className="absolute left-[2cqw] top-[2cqw] text-[1cqw] uppercase tracking-widest font-mono" style={{ color: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).bullet + '60' }}>
+            <BackgroundDesign themeId={projectData?.generated_content?._theme} />
+            <div className="absolute left-[2cqw] top-[2cqw] text-[1cqw] uppercase tracking-widest font-mono z-10" style={{ color: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).bullet + '60' }}>
               Slide {activeSlide + 1}
             </div>
             
             <h2 
-              className={`font-bold leading-tight uppercase ${isPresentMode ? 'text-[3.5cqw] mb-[2.5cqw]' : 'text-[3cqw] mb-[2cqw]'}`}
+              className={`font-bold leading-tight uppercase relative z-10 ${getFontClasses(true)}`}
               style={{ color: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).accent }}
             >
               {safeSlides[activeSlide]?.title}
             </h2>
             
-            <div className="flex-1 overflow-hidden">
-              <ul className={`list-disc leading-snug ${isPresentMode ? 'text-[1.8cqw] space-y-[1.2cqw] pl-[3cqw]' : 'text-[1.5cqw] space-y-[0.9cqw] pl-[2.5cqw]'}`}
+            <div className="flex-1 overflow-hidden relative z-10">
+              <ul className={`list-disc leading-snug ${getFontClasses(false)}`}
                 style={{ color: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).text }}
               >
                 {safeSlides[activeSlide]?.bullets.map((point: string, index: number) => (
@@ -457,7 +476,7 @@ const DeckEditor = () => {
               </ul>
             </div>
             
-            <div className="absolute bottom-[2cqw] left-0 right-0 text-center">
+            <div className="absolute bottom-[2cqw] left-0 right-0 text-center z-10">
               <span className={`uppercase tracking-widest font-mono ${isPresentMode ? 'text-[1.2cqw]' : 'text-[1cqw]'}`} style={{ color: (THEME_COLORS[projectData?.generated_content?._theme] || DEFAULT_THEME).bullet + '50' }}>PitchGenie</span>
             </div>
             
@@ -476,6 +495,14 @@ const DeckEditor = () => {
           </motion.div>
         </div>
       </div>
+
+      {/* AI Chatbot - floating widget */}
+      {!isPresentMode && (
+        <ChatBot
+          projectData={projectData}
+          onProjectUpdate={(updated) => setProjectData(updated)}
+        />
+      )}
     </div>
   );
 };
