@@ -510,24 +510,39 @@ const DeckEditor = () => {
       <div className={`flex gap-3 ${isPresentMode ? 'flex-1 w-full h-full' : 'flex-1 h-0'}`}>
         {/* Slide thumbnails */}
         {!isPresentMode && (
-          <div className="w-36 flex-shrink-0 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
-            {safeSlides.map((s, i) => (
-              <button
-                key={s.id}
-                onClick={() => setActiveSlide(i)}
-                className={`w-full text-left rounded-lg p-2.5 transition-all duration-200 flex items-center gap-1.5 ${
-                  i === activeSlide
-                    ? "glass-card glow-border"
-                    : "hover:bg-card/50 border border-transparent"
-                }`}
-              >
-                <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0" />
-                <div className="overflow-hidden">
-                  <p className="text-[10px] text-muted-foreground">Slide {i + 1}</p>
-                  <p className="text-xs font-medium truncate">{s.title}</p>
-                </div>
-              </button>
-            ))}
+          <div className="w-40 flex-shrink-0 flex flex-col glass-card border-none bg-black/20 overflow-hidden">
+            <div className="p-3 border-b border-white/5 flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Slides</span>
+              <span className="text-[10px] font-mono text-primary/60">{safeSlides.length}</span>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-thin">
+              {safeSlides.map((s, i) => (
+                <button
+                  key={s.id}
+                  onClick={() => setActiveSlide(i)}
+                  className={`w-full text-left rounded-xl p-3 transition-all duration-300 group relative overflow-hidden ${
+                    i === activeSlide
+                      ? "bg-primary/10 border-primary/30 shadow-[0_0_15px_-3px_hsl(var(--primary)/0.2)]"
+                      : "hover:bg-white/5 border-transparent"
+                  } border`}
+                >
+                  <div className="flex items-center gap-2 relative z-10">
+                    <span className={`text-[10px] font-mono ${i === activeSlide ? 'text-primary' : 'text-muted-foreground/50'}`}>
+                      {(i + 1).toString().padStart(2, '0')}
+                    </span>
+                    <p className={`text-xs font-medium truncate ${i === activeSlide ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground'}`}>
+                      {s.title}
+                    </p>
+                  </div>
+                  {i === activeSlide && (
+                    <motion.div 
+                      layoutId="active-pill"
+                      className="absolute left-0 top-0 bottom-0 w-1 bg-primary"
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
