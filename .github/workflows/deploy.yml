@@ -12,9 +12,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Node ⚙️
-        uses: actions/checkout@v4
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: kano/package-lock.json
 
       - name: Install and Build 🏗️
         run: |

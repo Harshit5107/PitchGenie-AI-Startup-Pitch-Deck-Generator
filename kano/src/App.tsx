@@ -25,7 +25,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter basename="/PitchGenie-AI-Startup-Pitch-Deck-Generator">
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
